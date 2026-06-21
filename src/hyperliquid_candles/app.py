@@ -174,12 +174,16 @@ def run_ingestion_cycle(
         LOGGER.exception("Insert failed; no external watermark has been advanced")
 
     symbols_ok = max(len(symbols) - symbols_failed, 0)
+    # A cycle that seeded at least one brand-new symbol is summarised as an
+    # initial run; otherwise it is a steady-state incremental run. Per-symbol
+    # modes are still recorded precisely in ingestion_symbol_status.
+    run_mode = "initial" if new_symbols else "incremental"
     insert_run_summary(
         clickhouse_client,
         database=database,
         summary=RunSummary(
             run_id=run_id,
-            mode="incremental",
+            mode=run_mode,
             started_at=started_at,
             finished_at=utc_now(),
             symbols_total=len(symbols),
@@ -228,7 +232,6 @@ def _fetch_initial_symbol(
         symbol=symbol,
         start_ms=effective_ms,
         end_ms=last_closed_ms,
-        page_limit=settings.ingestion.rest_horizon_min,
         source=hyperliquid_client,
     )
     status = SymbolStatus(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Protocol
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 class QueryClient(Protocol):
@@ -33,5 +33,14 @@ def query_watermarks_ms(client: QueryClient, database: str) -> dict[str, int | N
 
 
 def _datetime_to_ms(value: datetime) -> int:
-    """Convert a ClickHouse datetime value to Unix epoch milliseconds."""
+    """Convert a ClickHouse datetime value to Unix epoch milliseconds.
+
+    The `candles_1m` column is `DateTime64(3, 'UTC')`, which the driver normally
+    returns as a timezone-aware UTC datetime. If a naive datetime is ever
+    returned, it is interpreted as UTC rather than the host's local zone;
+    otherwise `.timestamp()` would silently shift every watermark by the local
+    UTC offset and corrupt the fetch window.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
     return int(value.timestamp() * 1000)

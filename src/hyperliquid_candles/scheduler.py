@@ -26,7 +26,14 @@ def run_scheduler(settings: Settings, cycle_callback: Callable[[], object]) -> N
     signal.signal(signal.SIGINT, _request_stop)
 
     while not stop_requested:
-        cycle_callback()
+        try:
+            cycle_callback()
+        except Exception:
+            # A single cycle failure (network blip, transient ClickHouse error)
+            # must not kill the long-running loop. Log it and continue to the
+            # next scheduled tick; ClickHouse rows remain the source of truth, so
+            # the next cycle recovers any missed window from stored watermarks.
+            LOGGER.exception("Ingestion cycle failed; continuing to next cycle")
         jitter_seconds = random.uniform(
             0, min(30, settings.ingestion.poll_interval_sec / 10)
         )

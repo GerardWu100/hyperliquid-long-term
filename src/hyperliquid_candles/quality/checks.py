@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from hyperliquid_candles.config import Settings, load_settings
+from hyperliquid_candles.config import IngestionSettings, Settings, load_settings
 from hyperliquid_candles.ingestion.gaps import gap_query
 from hyperliquid_candles.logging_setup import setup_logging
 from hyperliquid_candles.storage.clickhouse_client import wait_for_clickhouse
@@ -28,10 +28,12 @@ def build_quality_report(settings: Settings | None = None) -> str:
         ingestion_settings=resolved_settings.ingestion,
     )
     database = resolved_settings.clickhouse.database
+    latest_section = _run_query(
+        validated.client, "latest_by_symbol", latest_by_symbol_query(database)
+    )
     sections = [
-        _run_query(
-            validated.client, "latest_by_symbol", latest_by_symbol_query(database)
-        ),
+        latest_section,
+        _freshness_alert_section(latest_section, resolved_settings.ingestion),
         _run_query(validated.client, "duplicate_keys", duplicate_keys_query(database)),
         _run_query(validated.client, "gaps", gap_query(database)),
         _run_query(validated.client, "daily_counts", daily_counts_query(database)),
@@ -39,6 +41,47 @@ def build_quality_report(settings: Settings | None = None) -> str:
         _run_query(validated.client, "last_runs", last_runs_query(database)),
     ]
     return render_text_report(sections)
+
+
+def classify_freshness(minutes_behind: float, ingestion: "IngestionSettings") -> str:
+    """Map a per-symbol staleness in minutes to an alert severity.
+
+    Severity rises as stored data falls further behind the latest closed candle.
+    The `critical` tier is tuned to fire before staleness reaches Hyperliquid's
+    REST recovery horizon (~72h), beyond which missing candles can no longer be
+    backfilled from REST.
+    """
+    if minutes_behind >= ingestion.alert_critical_min:
+        return "critical"
+    if minutes_behind >= ingestion.alert_urgent_min:
+        return "urgent"
+    if minutes_behind >= ingestion.alert_serious_min:
+        return "serious"
+    if minutes_behind >= ingestion.alert_warn_min:
+        return "warning"
+    return "ok"
+
+
+def _freshness_alert_section(
+    latest_section: QualitySection, ingestion: "IngestionSettings"
+) -> QualitySection:
+    """Build a severity-labelled view of symbols that are behind the warn threshold.
+
+    Reuses the already-fetched `latest_by_symbol` rows (symbol, last_candle,
+    minutes_behind) instead of issuing a second query.
+    """
+    alert_rows: list[tuple[Any, ...]] = []
+    for symbol, last_candle, minutes_behind in latest_section.rows:
+        severity = classify_freshness(float(minutes_behind), ingestion)
+        if severity != "ok":
+            alert_rows.append((symbol, last_candle, minutes_behind, severity))
+
+    alert_rows.sort(key=lambda row: float(row[2]), reverse=True)
+    return QualitySection(
+        name="freshness_alerts",
+        columns=("symbol", "last_candle", "minutes_behind", "severity"),
+        rows=tuple(alert_rows),
+    )
 
 
 def render_text_report(sections: list[QualitySection]) -> str:

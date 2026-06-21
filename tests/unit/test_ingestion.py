@@ -17,8 +17,8 @@ class FakeCandleSource:
         return self.pages.pop(0)
 
 
-def test_build_initial_backfill_rows_pages_until_short_page() -> None:
-    """Initial backfill should advance by the newest open time returned."""
+def test_build_initial_backfill_rows_pages_until_cursor_stops_advancing() -> None:
+    """Initial backfill should page by the newest open time and stop when it stalls."""
     page_one = [
         Candle("BTC", 0, 59_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1),
         Candle("BTC", 60_000, 119_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1),
@@ -32,7 +32,6 @@ def test_build_initial_backfill_rows_pages_until_short_page() -> None:
         symbol="BTC",
         start_ms=0,
         end_ms=180_000,
-        page_limit=2,
         source=source,
     )
 

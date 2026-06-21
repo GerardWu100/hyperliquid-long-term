@@ -150,11 +150,17 @@ def load_settings(
     resolved_config_path = config_path or PROJECT_ROOT / "config.toml"
     resolved_env_path = env_path or PROJECT_ROOT / ".env"
 
+    # Precedence: the `.env` file is the authoritative source for ClickHouse
+    # connection values; the process environment only fills keys the file omits.
+    # This is deliberate. On a host whose shell already exports these variables,
+    # a value can be silently corrupted (for example a password containing `$`
+    # mangled by shell expansion). Letting the file win keeps the documented
+    # `.env` as the single source of truth and makes loading deterministic.
     file_env = dotenv_values(resolved_env_path) if resolved_env_path.exists() else {}
-    merged_env: dict[str, str | None] = dict(file_env)
-    for key in _CLICKHOUSE_ENV_KEYS:
-        if key in os.environ:
-            merged_env[key] = os.environ[key]
+    merged_env: dict[str, str | None] = {
+        key: os.environ[key] for key in _CLICKHOUSE_ENV_KEYS if key in os.environ
+    }
+    merged_env.update(file_env)
 
     config_values: dict[str, Any] = {}
     if resolved_config_path.exists():

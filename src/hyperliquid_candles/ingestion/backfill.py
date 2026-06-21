@@ -10,10 +10,18 @@ def build_initial_backfill_rows(
     symbol: str,
     start_ms: int,
     end_ms: int,
-    page_limit: int,
     source: CandleSource,
 ) -> list[Candle]:
-    """Fetch all reachable rows for one new symbol using cursor pagination."""
+    """Fetch all reachable rows for one new symbol using cursor pagination.
+
+    Termination relies only on cursor progress, not on a page-size heuristic.
+    Hyperliquid's `candleSnapshot` page size is not contractually fixed (the docs
+    mention 500-element blocks for time-range responses while the candle endpoint
+    notes a 5000-candle horizon), so assuming "a short page means the last page"
+    can stop early and silently miss data. Instead we page forward by the newest
+    returned open time and stop when the cursor passes `end_ms`, when a page is
+    empty, or when the newest open time stops advancing.
+    """
     cursor_ms = start_ms
     fetched_rows: list[Candle] = []
 
@@ -28,7 +36,5 @@ def build_initial_backfill_rows(
             break
 
         cursor_ms = newest_open_ms + INTERVAL_MS
-        if len(page) < page_limit:
-            break
 
     return dedupe_by_symbol_open_time(fetched_rows)
