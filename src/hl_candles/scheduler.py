@@ -27,7 +27,9 @@ def run_scheduler(settings: Settings, cycle_callback: Callable[[], object]) -> N
 
     while not stop_requested:
         cycle_callback()
-        jitter_seconds = random.uniform(0, min(30, settings.ingestion.poll_interval_sec / 10))
+        jitter_seconds = random.uniform(
+            0, min(30, settings.ingestion.poll_interval_sec / 10)
+        )
         sleep_seconds = settings.ingestion.poll_interval_sec + jitter_seconds
         LOGGER.info("Sleeping %.1f seconds before next ingestion cycle", sleep_seconds)
 

@@ -119,12 +119,16 @@ class Settings:
             initial_backfill_start_time_utc=str(
                 config_values.get("initial_backfill_start_time_utc", "")
             ),
-            batch_insert_max_rows=int(config_values.get("batch_insert_max_rows", 100000)),
+            batch_insert_max_rows=int(
+                config_values.get("batch_insert_max_rows", 100000)
+            ),
             log_level=str(config_values.get("log_level", "INFO")),
             readiness_backoff_initial_sec=int(
                 config_values.get("readiness_backoff_initial_sec", 2)
             ),
-            readiness_backoff_max_sec=int(config_values.get("readiness_backoff_max_sec", 60)),
+            readiness_backoff_max_sec=int(
+                config_values.get("readiness_backoff_max_sec", 60)
+            ),
             readiness_backoff_jitter_sec=int(
                 config_values.get("readiness_backoff_jitter_sec", 1)
             ),

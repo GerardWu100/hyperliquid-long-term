@@ -54,5 +54,7 @@ class TokenBucket:
         now = time.monotonic()
         elapsed_seconds = now - self._last_refill_monotonic
         tokens_per_second = self.tokens_per_minute / 60.0
-        self._tokens = min(self.capacity, self._tokens + elapsed_seconds * tokens_per_second)
+        self._tokens = min(
+            self.capacity, self._tokens + elapsed_seconds * tokens_per_second
+        )
         self._last_refill_monotonic = now

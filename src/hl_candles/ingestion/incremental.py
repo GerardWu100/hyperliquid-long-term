@@ -43,7 +43,9 @@ def build_incremental_work_items(
         if start_ms > last_closed_ms:
             continue
 
-        work_items.append(WorkItem(symbol=symbol, start_ms=start_ms, end_ms=last_closed_ms))
+        work_items.append(
+            WorkItem(symbol=symbol, start_ms=start_ms, end_ms=last_closed_ms)
+        )
 
     return work_items
 
@@ -70,5 +72,7 @@ def fetch_incremental_rows(
 
 def log_cycle_failure(run_id: UUID, error: Exception) -> None:
     """Log a failed cycle without advancing any external watermark."""
-    LOGGER.exception("Ingestion cycle %s failed; ClickHouse rows remain source of truth", run_id)
+    LOGGER.exception(
+        "Ingestion cycle %s failed; ClickHouse rows remain source of truth", run_id
+    )
     LOGGER.debug("Failure detail: %r", error)

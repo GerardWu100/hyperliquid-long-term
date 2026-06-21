@@ -104,7 +104,9 @@ def run_ingestion_cycle(
     symbol_statuses: list[SymbolStatus] = []
     symbols_failed = 0
 
-    new_symbols = tuple(symbol for symbol in symbols if watermarks_ms.get(symbol) is None)
+    new_symbols = tuple(
+        symbol for symbol in symbols if watermarks_ms.get(symbol) is None
+    )
     for symbol in new_symbols:
         try:
             rows, status = _fetch_initial_symbol(
@@ -136,10 +138,12 @@ def run_ingestion_cycle(
         interval_ms=INTERVAL_MS,
         rest_horizon_min=settings.ingestion.rest_horizon_min,
     )
-    incremental_rows, incremental_statuses, incremental_failures = _fetch_incremental_symbols(
-        run_id=run_id,
-        work_items=work_items,
-        hyperliquid_client=hyperliquid_client,
+    incremental_rows, incremental_statuses, incremental_failures = (
+        _fetch_incremental_symbols(
+            run_id=run_id,
+            work_items=work_items,
+            hyperliquid_client=hyperliquid_client,
+        )
     )
     all_rows.extend(incremental_rows)
     symbol_statuses.extend(incremental_statuses)
@@ -154,7 +158,9 @@ def run_ingestion_cycle(
             database=database,
             candles=all_rows,
         )
-        insert_symbol_statuses(clickhouse_client, database=database, statuses=symbol_statuses)
+        insert_symbol_statuses(
+            clickhouse_client, database=database, statuses=symbol_statuses
+        )
     except Exception as exc:
         final_status = "failed"
         error = str(exc)

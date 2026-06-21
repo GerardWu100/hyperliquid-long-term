@@ -43,5 +43,7 @@ def select_symbols(
     selected = tuple(symbol for symbol in symbols_allowlist if symbol in active_set)
     missing = sorted(set(symbols_allowlist) - active_set)
     if missing:
-        raise ValueError(f"Allowlisted symbols are not active Hyperliquid perps: {missing}")
+        raise ValueError(
+            f"Allowlisted symbols are not active Hyperliquid perps: {missing}"
+        )
     return selected

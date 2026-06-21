@@ -27,9 +27,9 @@ def test_load_settings_reads_env_and_commented_config(tmp_path: Path) -> None:
         "\n".join(
             [
                 "poll_interval_sec = 3600",
-                "symbols_mode = \"allowlist\"",
-                "symbols_allowlist = [\"BTC\", \"ETH\"]",
-                "initial_backfill_start_time_utc = \"2026-01-01T00:00:00Z\"",
+                'symbols_mode = "allowlist"',
+                'symbols_allowlist = ["BTC", "ETH"]',
+                'initial_backfill_start_time_utc = "2026-01-01T00:00:00Z"',
             ]
         ),
         encoding="utf-8",

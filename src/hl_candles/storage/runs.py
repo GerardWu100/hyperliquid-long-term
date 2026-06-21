@@ -94,7 +94,9 @@ def ms_to_datetime(value_ms: int) -> datetime:
     return datetime.fromtimestamp(value_ms / 1000, tz=UTC)
 
 
-def insert_run_summary(client: InsertClient, database: str, summary: RunSummary) -> None:
+def insert_run_summary(
+    client: InsertClient, database: str, summary: RunSummary
+) -> None:
     """Insert one ingestion run summary row."""
     row = (
         summary.run_id,

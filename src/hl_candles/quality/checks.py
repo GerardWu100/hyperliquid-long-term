@@ -29,7 +29,9 @@ def build_quality_report(settings: Settings | None = None) -> str:
     )
     database = resolved_settings.clickhouse.database
     sections = [
-        _run_query(validated.client, "latest_by_symbol", latest_by_symbol_query(database)),
+        _run_query(
+            validated.client, "latest_by_symbol", latest_by_symbol_query(database)
+        ),
         _run_query(validated.client, "duplicate_keys", duplicate_keys_query(database)),
         _run_query(validated.client, "gaps", gap_query(database)),
         _run_query(validated.client, "daily_counts", daily_counts_query(database)),
