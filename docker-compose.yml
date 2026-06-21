@@ -1,0 +1,21 @@
+services:
+  hl-candles:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./logs:/app/logs
+    # If ClickHouse runs in another Docker project, attach this service to that
+    # external network and set IVYDB_CLICKHOUSE_HOST to the ClickHouse service
+    # name. If ClickHouse is only host-published on Linux, use the extra_hosts
+    # line below and set IVYDB_CLICKHOUSE_HOST=host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+# Example external network wiring:
+# networks:
+#   default:
+#     name: clickhouse-network
+#     external: true

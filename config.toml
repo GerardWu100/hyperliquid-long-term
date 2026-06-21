@@ -1,0 +1,53 @@
+# Seconds between scheduled ingestion cycles. Use 900 for 15 minutes or 3600 for hourly.
+poll_interval_sec = 900
+
+# Number of already-stored candles to re-fetch each cycle for idempotent overlap.
+overlap_candles = 5
+
+# Hyperliquid REST only exposes roughly the most recent 5000 1-minute candles.
+rest_horizon_min = 5000
+
+# Hyperliquid request pacing target in request-weight units per minute.
+weight_budget_per_min = 900
+
+# HTTP timeout for Hyperliquid REST requests, in seconds.
+request_timeout_sec = 30
+
+# Maximum retry attempts for transient Hyperliquid REST failures.
+max_retries = 4
+
+# Which symbols to ingest. Allowed values: "all" or "allowlist".
+symbols_mode = "all"
+
+# Symbols used only when symbols_mode = "allowlist".
+symbols_allowlist = []
+
+# Optional ISO-8601 UTC start time for brand-new symbols. Empty means full REST horizon.
+initial_backfill_start_time_utc = ""
+
+# Maximum rows to send in one ClickHouse insert call.
+batch_insert_max_rows = 100000
+
+# Python logging level. Common values: "INFO", "DEBUG", "WARNING", "ERROR".
+log_level = "INFO"
+
+# Initial ClickHouse readiness retry delay in seconds.
+readiness_backoff_initial_sec = 2
+
+# Maximum ClickHouse readiness retry delay in seconds.
+readiness_backoff_max_sec = 60
+
+# Random jitter added to ClickHouse readiness retry sleeps, in seconds.
+readiness_backoff_jitter_sec = 1
+
+# Freshness warning threshold, in minutes behind latest closed candle.
+alert_warn_min = 60
+
+# Freshness serious-warning threshold, in minutes behind latest closed candle.
+alert_serious_min = 720
+
+# Freshness urgent threshold, in minutes behind latest closed candle.
+alert_urgent_min = 2880
+
+# Freshness critical threshold, in minutes behind latest closed candle.
+alert_critical_min = 4320
