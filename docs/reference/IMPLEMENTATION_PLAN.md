@@ -180,12 +180,105 @@ objects (one database, two tables) are created — and only `IF NOT EXISTS`.
 Client library: **`clickhouse-connect`** (official, HTTP-native, matches port
 50050; supports efficient columnar batch inserts).
 
-Startup validation sequence:
-1. Open client from `.env` values.
-2. `SELECT 1` (connectivity) and `SELECT version()` (log it).
-3. `CREATE DATABASE IF NOT EXISTS hyperliquid`.
-4. Run table DDL (`IF NOT EXISTS`).
-5. Abort with a clear error if any step fails (do not silently continue).
+Startup validation sequence (**readiness-aware** — must survive a temporarily
+unavailable ClickHouse):
+
+After a VPS reboot the Docker daemon, the ClickHouse container, and the ingestion
+container do not necessarily become ready at the same instant. The service must
+therefore **wait** for ClickHouse rather than crash if the dependency is not yet
+up.
+
+1. Load `.env` and `config.toml`.
+2. Attempt to open a ClickHouse client from `.env` values.
+3. **If ClickHouse is unavailable (dependency-not-ready):**
+   - log the connection error clearly,
+   - sleep using **exponential backoff with jitter** (`readiness_backoff_*` in
+     `config.toml`),
+   - retry indefinitely until ClickHouse becomes reachable,
+   - **do not** write a `failed` ingestion run for a readiness wait (no cycle has
+     started yet — this is dependency startup, not an ingestion error).
+4. **Once reachable:**
+   - run `SELECT 1` (connectivity),
+   - run and log `SELECT version()`,
+   - `CREATE DATABASE IF NOT EXISTS hyperliquid`,
+   - run table/view DDL (`IF NOT EXISTS`),
+   - immediately run one **catch-up ingestion cycle** (restart recovery).
+
+**Error classification (the service must distinguish three classes):**
+
+| Class | Examples | Action |
+|---|---|---|
+| Dependency-not-ready | connection refused, timeout, host unresolved, ClickHouse still booting | retry with backoff + jitter, indefinitely |
+| Schema / permission | `CREATE`/`INSERT`/`SELECT` denied, missing rights on `system.*`, malformed DDL | **fail fast** with a clear, actionable error; do not loop |
+| Runtime ingestion | a fetch or insert fails mid-cycle | handled per §6.4 (run marked `partial`/`failed`, recover next cycle) |
+
+Only dependency-not-ready retries silently-with-backoff. Permission/schema errors
+must surface immediately so a human fixes ClickHouse grants/DDL.
+
+### 4.1 Docker networking (explicit — do not assume `localhost`)
+
+Inside the ingestion container, `localhost`/`127.0.0.1` refers to the **container
+itself**, not the VPS host and not the ClickHouse container. Your `.env` value
+`IVYDB_CLICKHOUSE_HOST=localhost` is correct only for running the service
+directly on the host; under Docker it must be overridden. We decide explicitly:
+
+**Pattern 1 — Preferred (ClickHouse runs in Docker):**
+- Attach the ingestion container to the **same Docker network** as the existing
+  ClickHouse container (declare that network as `external: true` in this
+  project's `docker-compose.yml`; we do **not** create/own it).
+- Connect via the ClickHouse **container/service name** as the host
+  (e.g. `IVYDB_CLICKHOUSE_HOST=clickhouse`).
+- Use the ClickHouse **HTTP port as exposed inside the Docker network** (the
+  container's internal port, e.g. 8123, which may differ from the host-published
+  50050). Set `IVYDB_CLICKHOUSE_PORT` to the in-network port.
+
+**Pattern 2 — Acceptable (connect to the host-published port):**
+- Reach the host-published ClickHouse port via the host gateway: set
+  `IVYDB_CLICKHOUSE_HOST=host.docker.internal` and add
+  `extra_hosts: ["host.docker.internal:host-gateway"]` to the service in compose
+  (required on Linux), using the host-published port (50050); **or**
+- use `network_mode: host`, in which case `localhost:50050` from `.env` works
+  unchanged (simplest on a single Linux VPS, at the cost of network isolation).
+
+**Avoid:** using `127.0.0.1`/`localhost` from inside a bridged container unless
+`network_mode: host` was deliberately chosen.
+
+**Recommendation for this VPS:** Pattern 1 if ClickHouse is containerized
+(cleanest, no host-port dependency); otherwise `network_mode: host` (Pattern 2)
+for minimum friction. The chosen host/port live entirely in `.env`, so switching
+patterns needs no code change.
+
+**Connectivity checklist (run from inside the ingestion container):**
+1. `getent hosts $IVYDB_CLICKHOUSE_HOST` — name resolves.
+2. `nc -zv $IVYDB_CLICKHOUSE_HOST $IVYDB_CLICKHOUSE_PORT` — TCP port reachable.
+3. `curl "http://$IVYDB_CLICKHOUSE_HOST:$IVYDB_CLICKHOUSE_PORT/ping"` → `Ok.`
+4. `curl` an authenticated `SELECT 1` with the `.env` user/password → `1`.
+5. Confirm the service's startup `SELECT version()` line appears in the logs.
+
+### 4.2 Reboot-resume guarantee
+
+The system must resume unattended after a full VPS reboot. Requirements:
+
+1. **Docker daemon** starts on boot (`systemctl enable docker`).
+2. **Existing ClickHouse container** has a restart policy
+   (`restart: unless-stopped`/`always`) or an equivalent boot mechanism — owned
+   by its own project, assumed in place.
+3. **Ingestion container** has `restart: unless-stopped` (set in this project's
+   compose).
+4. On start, the ingestion container **waits for ClickHouse readiness** (§4,
+   backoff + jitter) before running its catch-up cycle — so boot-order races
+   between the two containers are harmless.
+5. The **first successful cycle after reboot** must:
+   - query the actual per-symbol `max(open_time)` watermarks from ClickHouse,
+   - backfill forward from stored data (overlap window + any gap within horizon),
+   - rely on **no** local/in-memory state from before the reboot.
+
+This single ClickHouse-derived recovery path covers every failure mode
+identically: ingestion process crash, ingestion container restart, ClickHouse
+temporary downtime, full VPS reboot, and short network outages. In all cases the
+next cycle reconstructs state from candle rows (the only source of truth) and
+re-fetches whatever is missing, provided the gap is inside the ~3.47-day REST
+horizon (longer gaps are flagged per §6.6 and the freshness alerts in §10).
 
 ---
 
@@ -289,6 +382,41 @@ ORDER BY (started_at);
 needed). Enables "is ingestion stuck?", "last successful run", and per-run
 throughput metrics. Cheap and small.
 
+### 5.3b Table: `ingestion_symbol_status` (per-symbol cycle outcome)
+
+A single cycle can **partially succeed** (e.g. 180 symbols OK, 5 fail). The
+aggregate counters in `ingestion_runs` cannot say *which* symbols failed or what
+range each attempted. We therefore keep `ingestion_runs` as the per-cycle
+summary and add a per-symbol detail table (Option B — a separate table; simple
+and queryable):
+
+```sql
+CREATE TABLE IF NOT EXISTS hyperliquid.ingestion_symbol_status
+(
+    run_id          UUID,
+    symbol          LowCardinality(String),
+    mode            Enum8('initial' = 1, 'incremental' = 2),
+    requested_start DateTime64(3, 'UTC'),
+    requested_end   DateTime64(3, 'UTC'),
+    effective_start DateTime64(3, 'UTC'),   -- after horizon clamp (see 6.5)
+    rows_fetched    UInt32,
+    rows_inserted   UInt32,
+    status          Enum8('success' = 1, 'skipped' = 2, 'failed' = 3),
+    error           String DEFAULT '',
+    recorded_at     DateTime64(3, 'UTC') DEFAULT now64(3)
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(recorded_at)
+ORDER BY (run_id, symbol);
+```
+
+**Justification**: makes partial-cycle failures visible per symbol, records the
+**effective start time** used (supporting Fix 4's clamp/warn logic), and
+separates `rows_fetched` from `rows_inserted` so an insert failure is
+distinguishable from an empty fetch. Append-only `MergeTree`; one short row per
+symbol per cycle (~200 rows/cycle) is negligible. `run_id` joins back to
+`ingestion_runs`.
+
 ### 5.4 Why no separate watermark table
 
 The latest stored candle per symbol is derivable directly:
@@ -311,6 +439,16 @@ rest_horizon_min   = 5000            # HL hard limit (~3.47 days for 1m)
 page_limit         = 5000            # assume up to 5000/req; paginate defensively
 poll_interval_sec  = 900             # 15 minutes (see scheduling, can be 3600)
 weight_budget_pm   = 900             # stay under HL 1200/min with headroom
+
+# Initial-backfill control (Fix 4)
+INITIAL_BACKFILL_START_TIME_UTC = ""     # optional ISO-8601 UTC; "" = use default
+symbols_mode       = "all"               # "all" active perps | "allowlist"
+symbols_allowlist  = []                  # used only when symbols_mode = "allowlist"
+
+# ClickHouse readiness wait (Fix 1)
+readiness_backoff_initial_sec = 2
+readiness_backoff_max_sec     = 60
+readiness_backoff_jitter_sec  = 1
 ```
 
 ### 6.2 Restart-safe principle
@@ -355,22 +493,77 @@ function run_incremental_cycle(symbols, ch, hl):
 
         candles = hl.fetch_candles(symbol, "1m", start_ms, last_closed)
         batch.extend(parse(candles))
-        run.symbols_ok += 1
+        per_symbol[symbol] = (start_ms, last_closed, len(candles))
 
     if batch:
-        ch.insert("candles_1m", batch)     # single batched, idempotent insert
+        try:
+            ch.insert("candles_1m", batch)     # single batched, idempotent insert
+        except ClickHouseError as e:
+            # Insert failed AFTER fetch. Do NOT claim success, do NOT advance any
+            # state. The fetched rows are discarded; ClickHouse remains the only
+            # source of truth. Next cycle recomputes max(open_time) and re-fetches.
+            record_symbol_status_all(per_symbol, status="failed", error=str(e))
+            finish_run(run, status="failed", error=str(e))
+            return
         run.candles_inserted = len(batch)
-    finish_run(run, status="success")
+    record_symbol_status_all(per_symbol, status="success")
+    finish_run(run, status="success")   # 'partial' if some symbols raised mid-loop
 ```
+
+**Insert-failure semantics (Fix 5).** If a cycle fetches from Hyperliquid but the
+ClickHouse insert fails:
+1. The run is **not** marked successful (status `failed`, or `partial` if only
+   some symbols failed before the insert).
+2. **No** separate state variable / watermark file is advanced — there is none;
+   see §5.4.
+3. The fetched-but-unstored data is **not** treated as if it exists.
+4. The next cycle recovers by querying the actual `max(open_time)` per symbol
+   from ClickHouse and re-fetching the missing range (the overlap window plus the
+   now-larger gap, still bounded by the REST horizon).
+5. **ClickHouse candle rows are the single source of truth** — not process
+   memory, not a watermark file. This is exactly why §5.4 rejects a watermark
+   table: a crash between "fetch" and "insert" leaves no false record of success.
 
 ### 6.5 Initial backfill (per new symbol) — pseudocode
 
+The first backfill is **start-time controlled**, not a blind "grab everything".
+A user may supply `INITIAL_BACKFILL_START_TIME_UTC` (optional ISO-8601 UTC). If
+the requested start is reachable via REST, we honor it; if it predates the REST
+horizon, we clamp to the earliest reachable candle and warn. If none is given we
+use a plan-chosen default. The **effective start time** is recorded per symbol in
+`ingestion_symbol_status` (§5.3b).
+
+**Default justification**: when no start time is provided, default to the full
+REST-reachable window, i.e. `rest_horizon_floor` (~3.47 days / 5000 minutes
+before `last_closed`). Rationale — REST cannot return anything older anyway, so
+the most useful zero-config behavior is to seed the maximum the API can give;
+the service then accumulates true long-term history going forward. (A shorter
+default would discard freely available history for no benefit.)
+
 ```text
-function run_initial_backfill(symbol, ch, hl):
+function compute_initial_start(last_closed, config):
+    rest_horizon_floor = last_closed - rest_horizon_min * interval_ms
+
+    if config.INITIAL_BACKFILL_START_TIME_UTC is set:
+        requested_start = parse_iso8601_utc(config.INITIAL_BACKFILL_START_TIME_UTC)
+    else:
+        requested_start = rest_horizon_floor          # plan-chosen default
+
+    effective_start = max(requested_start, rest_horizon_floor)
+
+    if requested_start < rest_horizon_floor:
+        log.warning(
+            "Requested start time is older than what Hyperliquid REST can "
+            "currently provide. Backfill will start from the earliest reachable "
+            "REST candle instead.")
+    return requested_start, effective_start
+
+
+function run_initial_backfill(symbol, ch, hl, config):
     last_closed = floor(now_ms/60000)*60000 - 60000
-    start_ms    = last_closed - rest_horizon_min * interval_ms   # ~3.47 days ago
-    cursor      = start_ms
-    batch       = []
+    requested_start, effective_start = compute_initial_start(last_closed, config)
+    cursor = effective_start
+    batch  = []
 
     while cursor <= last_closed:
         candles = hl.fetch_candles(symbol, "1m", cursor, last_closed)
@@ -384,9 +577,19 @@ function run_initial_backfill(symbol, ch, hl):
         if len(candles) < page_limit:   # last page reached
             break
 
-    if batch:
-        ch.insert("candles_1m", dedupe_by_open_time(batch))
+    rows = dedupe_by_open_time(batch)
+    insert_or_raise(ch, "candles_1m", rows)   # see 6.6: failure must NOT be hidden
+    record_symbol_status(symbol, mode="initial",
+                         requested_start=requested_start,
+                         requested_end=last_closed,
+                         effective_start=effective_start,
+                         rows_fetched=len(batch), rows_inserted=len(rows),
+                         status="success")
 ```
+
+**Symbol allow-list**: `symbols_mode` defaults to `"all"` (every active perp from
+`meta`); an optional explicit list (`symbols_allowlist`) restricts ingestion for
+testing/cost control without code changes.
 
 `dedupe_by_open_time` is a cheap in-memory guard against page-boundary overlap;
 ClickHouse still provides the durable dedup.
@@ -575,6 +778,21 @@ Concrete checks (shipped in `quality/checks.py`, surfaced by
     GROUP BY symbol
     ORDER BY minutes_behind DESC;
     ```
+   **Outage alert thresholds (Fix 7)** — derived from `minutes_behind`, applied
+   per symbol (most-behind symbol drives overall severity). Configurable; the key
+   point is to warn *before* downtime nears the unrecoverable REST horizon
+   (~72h / 5000 min):
+
+   | `minutes_behind` | Severity |
+   |---|---|
+   | `> 60` (1h) | warning |
+   | `> 720` (12h) | serious warning |
+   | `> 2880` (48h) | urgent |
+   | `> 4320` (72h) | **critical** — approaching the REST recovery limit; data older than this becomes unrecoverable via REST |
+
+   Thresholds live in `config.toml` (`alert_warn_min`, `alert_serious_min`,
+   `alert_urgent_min`, `alert_critical_min`). Below the warning threshold the
+   normal 15-min cadence means a healthy symbol is typically <30 min behind.
 2. **Missing 1m candles** — the window-function gap scan in §6.6.
 3. **Duplicate candle keys** — the `HAVING count() > 1` query in §8.
 4. **Row counts by day & symbol** (coverage / anomalies):
@@ -661,9 +879,10 @@ hyperliquid-long-term/
 │       │   └── candles.py        # candleSnapshot fetch + parse + paginate
 │       ├── storage/
 │       │   ├── __init__.py
-│       │   ├── clickhouse_client.py  # connect from .env, SELECT 1, version
-│       │   ├── schema.py         # DDL strings + create-if-not-exists
-│       │   ├── writer.py         # batched columnar insert
+│       │   ├── clickhouse_client.py  # connect from .env, readiness wait+backoff, SELECT 1, version
+│       │   ├── schema.py         # DDL for candles_1m, ingestion_runs, ingestion_symbol_status, clean view (IF NOT EXISTS)
+│       │   ├── writer.py         # batched columnar insert; insert-failure -> raise (no false success)
+│       │   ├── runs.py           # write ingestion_runs + ingestion_symbol_status rows
 │       │   └── watermarks.py     # max(open_time) per symbol
 │       ├── ingestion/
 │       │   ├── __init__.py
@@ -693,8 +912,12 @@ Dev: `ruff` (already present), `pytest`.
 
 **`config.toml` tunables (each commented):** `poll_interval_sec`,
 `overlap_candles`, `rest_horizon_min`, `weight_budget_per_min`,
-`request_timeout_sec`, `max_retries`, `symbols_mode` (`"all"` | explicit list),
-`batch_insert_max_rows`, `log_level`.
+`request_timeout_sec`, `max_retries`, `symbols_mode` (`"all"` | `"allowlist"`),
+`symbols_allowlist`, `batch_insert_max_rows`, `log_level`,
+`initial_backfill_start_time_utc` (optional ISO-8601 UTC),
+`readiness_backoff_initial_sec`, `readiness_backoff_max_sec`,
+`readiness_backoff_jitter_sec`, and freshness alert thresholds
+(`alert_warn_min`, `alert_serious_min`, `alert_urgent_min`, `alert_critical_min`).
 
 **Symbol selection**: default `symbols_mode = "all"` (every active perp from
 `meta`), with an optional explicit allow-list for testing/cost control. We
@@ -739,14 +962,18 @@ hatch.
 
 The MVP = **Phases 1–4**:
 
-1. Config + `.env` ClickHouse connection with startup validation.
+1. Config + `.env` ClickHouse connection with **readiness-aware** startup
+   (retry-with-backoff on dependency-not-ready; fail fast on permission/schema)
+   and explicit Docker networking (§4.1).
 2. Idempotent creation of `candles_1m` (ReplacingMergeTree) + `ingestion_runs`
-   + `candles_1m_clean` read view.
-3. Symbol discovery from `meta` (all active perps).
+   + `ingestion_symbol_status` + `candles_1m_clean` read view.
+3. Symbol discovery from `meta` (all active perps; optional allow-list).
 4. Rate-limited, retrying REST client for `candleSnapshot` 1m.
 5. Restart-safe incremental cycle: per-symbol watermark → overlap window →
-   batched idempotent insert → run metadata.
-6. Initial backfill (~3.5 days) for new symbols.
+   batched idempotent insert → run + per-symbol metadata; insert failure never
+   marks success (§6.4).
+6. Initial backfill for new symbols honoring `INITIAL_BACKFILL_START_TIME_UTC`
+   (clamp-to-horizon + warn; default = full REST-reachable ~3.5 days).
 7. Loop scheduler at **15-minute** cadence (config-switchable to hourly) with
    graceful shutdown.
 8. Dockerfile + compose (service only) with `restart: unless-stopped`;
