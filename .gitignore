@@ -1,0 +1,38 @@
+# Local secrets and environment overrides.
+.env
+
+# Python bytecode and caches.
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments and uv artifacts.
+.venv/
+venv/
+
+# Packaging and build outputs.
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Test and type-checking caches.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Project outputs and logs.
+outputs/
+logs/
+data/
+*.log
+
+# Editor and OS files.
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
