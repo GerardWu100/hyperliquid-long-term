@@ -14,8 +14,8 @@ back up ClickHouse.
 
 - `hyperliquid-candles`: long-running scheduler with immediate catch-up on startup.
 - `hyperliquid-candles-run-once`: one ingestion cycle for cron or `systemd` timers.
-- `hyperliquid-candles-quality`: data quality report for freshness, gaps, duplicates, parts, and
-  recent run status.
+- `hyperliquid-candles-quality`: data quality report for active-symbol freshness, gaps,
+  duplicates, parts, and recent run status.
 - `candles_1m`: raw idempotent ClickHouse candle table.
 - `candles_1m_clean`: duplicate-safe research view using `argMax`.
 - `ingestion_runs` and `ingestion_symbol_status`: cycle metadata tables.

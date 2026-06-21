@@ -53,7 +53,9 @@ cache.
 - `storage/writer.py`: columnar candle inserts.
 - `storage/watermarks.py`: `max(open_time)` query.
 - `storage/runs.py`: run and per-symbol metadata inserts.
-- `quality/checks.py`: quality-report SQL and text rendering.
+- `quality/checks.py`: quality-report SQL and text rendering. Freshness checks
+  resolve the current active Hyperliquid universe before querying ClickHouse, so
+  historical delisted symbols do not create live staleness alerts.
 
 Start in `app.py` for runtime behavior and in `tests/unit/` for examples of the
 pure ingestion logic.
@@ -61,3 +63,4 @@ pure ingestion logic.
 # Part 3: Short journal
 
 - 2026-06-21: Kept ClickHouse as the only source of progress so crash recovery and reboot recovery use the same path.
+- 2026-06-21: Scoped freshness monitoring to currently active symbols while keeping historical candle rows intact.

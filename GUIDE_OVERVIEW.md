@@ -66,8 +66,9 @@ startup, then sleeps for `poll_interval_sec` plus jitter.
 `hyperliquid-candles-run-once` runs exactly one cycle. This is useful for cron, `systemd` timers,
 manual checks, and debugging.
 
-`hyperliquid-candles-quality` prints a plain-text report covering latest candle freshness,
-duplicates, gaps, daily counts, ClickHouse parts, and recent ingestion runs.
+`hyperliquid-candles-quality` prints a plain-text report covering latest candle
+freshness for currently selected active symbols, duplicates, gaps, daily counts,
+ClickHouse parts, and recent ingestion runs.
 
 ## Tradeoffs
 

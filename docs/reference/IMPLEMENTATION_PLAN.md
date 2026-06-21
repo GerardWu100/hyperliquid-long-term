@@ -769,15 +769,20 @@ immediately runs one catch-up cycle (restart recovery).
 Concrete checks (shipped in `quality/checks.py`, surfaced by
 `run_quality_report`).
 
-1. **Latest timestamp by symbol** (freshness / stalls):
+1. **Latest timestamp by active symbol** (freshness / stalls):
     ```sql
     SELECT symbol,
            max(open_time) AS last_candle,
            dateDiff('minute', max(open_time), now64(3)) AS minutes_behind
     FROM hyperliquid.candles_1m
+    WHERE symbol IN (...)
     GROUP BY symbol
     ORDER BY minutes_behind DESC;
     ```
+   The active symbol filter comes from the current Hyperliquid `meta` universe
+   and the configured symbol mode. Delisted or otherwise inactive symbols remain
+   in historical storage but do not create live freshness alerts.
+
    **Outage alert thresholds (Fix 7)** — derived from `minutes_behind`, applied
    per symbol (most-behind symbol drives overall severity). Configurable; the key
    point is to warn *before* downtime nears the unrecoverable REST horizon

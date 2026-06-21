@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from hyperliquid_candles.config import IngestionSettings, Settings, load_settings
+from hyperliquid_candles.hyperliquid.client import HyperliquidClient
+from hyperliquid_candles.hyperliquid.universe import select_symbols
 from hyperliquid_candles.ingestion.gaps import gap_query
 from hyperliquid_candles.logging_setup import setup_logging
+from hyperliquid_candles.ratelimit import TokenBucket
 from hyperliquid_candles.storage.clickhouse_client import wait_for_clickhouse
 
 
@@ -27,9 +30,29 @@ def build_quality_report(settings: Settings | None = None) -> str:
         clickhouse_settings=resolved_settings.clickhouse,
         ingestion_settings=resolved_settings.ingestion,
     )
+    rate_limiter = TokenBucket(
+        tokens_per_minute=resolved_settings.ingestion.weight_budget_per_min,
+    )
+    hyperliquid = HyperliquidClient(
+        timeout_sec=resolved_settings.ingestion.request_timeout_sec,
+        max_retries=resolved_settings.ingestion.max_retries,
+        rate_limiter=rate_limiter,
+    )
+    try:
+        meta_response = hyperliquid.fetch_meta()
+    finally:
+        hyperliquid.close()
+
+    active_symbols = select_symbols(
+        meta_response=meta_response,
+        symbols_mode=resolved_settings.ingestion.symbols_mode,
+        symbols_allowlist=resolved_settings.ingestion.symbols_allowlist,
+    )
     database = resolved_settings.clickhouse.database
     latest_section = _run_query(
-        validated.client, "latest_by_symbol", latest_by_symbol_query(database)
+        validated.client,
+        "latest_by_symbol",
+        latest_by_symbol_query(database, active_symbols),
     )
     sections = [
         latest_section,
@@ -98,17 +121,41 @@ def render_text_report(sections: list[QualitySection]) -> str:
     return "\n".join(lines)
 
 
-def latest_by_symbol_query(database: str) -> str:
-    """Return freshness query SQL."""
+def latest_by_symbol_query(database: str, active_symbols: tuple[str, ...]) -> str:
+    """Return freshness query SQL for currently active symbols only."""
+    active_filter = _symbol_filter_sql(active_symbols)
     return f"""
 SELECT
     symbol,
     max(open_time) AS last_candle,
     dateDiff('minute', max(open_time), now64(3)) AS minutes_behind
 FROM {database}.candles_1m
+WHERE {active_filter}
 GROUP BY symbol
 ORDER BY minutes_behind DESC
 """
+
+
+def _symbol_filter_sql(active_symbols: tuple[str, ...]) -> str:
+    """Return a ClickHouse filter for the active symbol tuple.
+
+    The quality report fetches the active universe from Hyperliquid before this
+    query runs. Symbols not in that universe may remain valid historical data,
+    but they should not create live freshness alerts after delisting.
+    """
+    if not active_symbols:
+        return "0"
+
+    quoted_symbols: list[str] = []
+    for symbol in active_symbols:
+        # ClickHouse string literals use single quotes. Doubling embedded single
+        # quotes keeps the query valid even if an exchange symbol ever contains
+        # one, although normal Hyperliquid symbols are simple names like BTC.
+        escaped_symbol = symbol.replace("'", "''")
+        quoted_symbols.append(f"'{escaped_symbol}'")
+
+    symbol_list = ", ".join(quoted_symbols)
+    return f"symbol IN ({symbol_list})"
 
 
 def duplicate_keys_query(database: str) -> str:
