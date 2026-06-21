@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hl_candles.config import PROJECT_ROOT
+from hyperliquid_candles.config import PROJECT_ROOT
 
 
 def setup_logging(log_level: str, logs_dir: Path | None = None) -> Path:

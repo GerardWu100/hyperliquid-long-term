@@ -6,8 +6,8 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from hl_candles.hyperliquid.candles import INTERVAL_MS, Candle, CandleSource
-from hl_candles.hyperliquid.candles import dedupe_by_symbol_open_time
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS, Candle, CandleSource
+from hyperliquid_candles.hyperliquid.candles import dedupe_by_symbol_open_time
 
 LOGGER = logging.getLogger(__name__)
 

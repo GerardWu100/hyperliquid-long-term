@@ -13,8 +13,8 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from hl_candles.hyperliquid.candles import INTERVAL_1M, Candle, parse_candles
-from hl_candles.ratelimit import TokenBucket
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_1M, Candle, parse_candles
+from hyperliquid_candles.ratelimit import TokenBucket
 
 LOGGER = logging.getLogger(__name__)
 HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info"

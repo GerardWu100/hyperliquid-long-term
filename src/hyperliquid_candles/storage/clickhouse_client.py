@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 
-from hl_candles.config import ClickHouseSettings, IngestionSettings
+from hyperliquid_candles.config import ClickHouseSettings, IngestionSettings
 
 LOGGER = logging.getLogger(__name__)
 

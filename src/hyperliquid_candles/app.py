@@ -7,18 +7,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from hl_candles.config import Settings, load_settings
-from hl_candles.hyperliquid.candles import INTERVAL_MS, Candle
-from hl_candles.hyperliquid.client import HyperliquidClient
-from hl_candles.hyperliquid.universe import select_symbols
-from hl_candles.ingestion.backfill import build_initial_backfill_rows
-from hl_candles.ingestion.incremental import WorkItem, build_incremental_work_items
-from hl_candles.ingestion.windows import compute_initial_start_ms, last_closed_open_ms
-from hl_candles.logging_setup import setup_logging
-from hl_candles.ratelimit import TokenBucket
-from hl_candles.scheduler import run_scheduler
-from hl_candles.storage.clickhouse_client import wait_for_clickhouse
-from hl_candles.storage.runs import (
+from hyperliquid_candles.config import Settings, load_settings
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS, Candle
+from hyperliquid_candles.hyperliquid.client import HyperliquidClient
+from hyperliquid_candles.hyperliquid.universe import select_symbols
+from hyperliquid_candles.ingestion.backfill import build_initial_backfill_rows
+from hyperliquid_candles.ingestion.incremental import WorkItem, build_incremental_work_items
+from hyperliquid_candles.ingestion.windows import compute_initial_start_ms, last_closed_open_ms
+from hyperliquid_candles.logging_setup import setup_logging
+from hyperliquid_candles.ratelimit import TokenBucket
+from hyperliquid_candles.scheduler import run_scheduler
+from hyperliquid_candles.storage.clickhouse_client import wait_for_clickhouse
+from hyperliquid_candles.storage.runs import (
     RunSummary,
     SymbolStatus,
     insert_run_summary,
@@ -27,9 +27,9 @@ from hl_candles.storage.runs import (
     new_run_id,
     utc_now,
 )
-from hl_candles.storage.schema import create_schema
-from hl_candles.storage.watermarks import query_watermarks_ms
-from hl_candles.storage.writer import insert_candles
+from hyperliquid_candles.storage.schema import create_schema
+from hyperliquid_candles.storage.watermarks import query_watermarks_ms
+from hyperliquid_candles.storage.writer import insert_candles
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class CycleResult:
 def run_once(settings: Settings | None = None) -> CycleResult:
     """Run one catch-up ingestion cycle.
 
-    This function is the entrypoint for `hl-run-once`, cron, systemd timers, and
+    This function is the entrypoint for `hyperliquid-candles-run-once`, cron, systemd timers, and
     the first catch-up cycle inside the long-running scheduler.
     """
     resolved_settings = settings or load_settings()

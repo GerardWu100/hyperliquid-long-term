@@ -1,6 +1,6 @@
-from hl_candles.hyperliquid.candles import Candle
-from hl_candles.ingestion.backfill import build_initial_backfill_rows
-from hl_candles.ingestion.incremental import build_incremental_work_items
+from hyperliquid_candles.hyperliquid.candles import Candle
+from hyperliquid_candles.ingestion.backfill import build_initial_backfill_rows
+from hyperliquid_candles.ingestion.incremental import build_incremental_work_items
 
 
 class FakeCandleSource:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Protocol
 from datetime import UTC, datetime
 
-from hl_candles.hyperliquid.candles import Candle
+from hyperliquid_candles.hyperliquid.candles import Candle
 
 
 class InsertClient(Protocol):

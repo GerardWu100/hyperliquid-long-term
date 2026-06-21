@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hl_candles.hyperliquid.candles import INTERVAL_MS, Candle, CandleSource
-from hl_candles.hyperliquid.candles import dedupe_by_symbol_open_time
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS, Candle, CandleSource
+from hyperliquid_candles.hyperliquid.candles import dedupe_by_symbol_open_time
 
 
 def build_initial_backfill_rows(

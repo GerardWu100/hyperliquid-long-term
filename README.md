@@ -12,9 +12,9 @@ back up ClickHouse.
 
 ## What It Builds
 
-- `hl-ingest`: long-running scheduler with immediate catch-up on startup.
-- `hl-run-once`: one ingestion cycle for cron or `systemd` timers.
-- `hl-quality`: data quality report for freshness, gaps, duplicates, parts, and
+- `hyperliquid-candles`: long-running scheduler with immediate catch-up on startup.
+- `hyperliquid-candles-run-once`: one ingestion cycle for cron or `systemd` timers.
+- `hyperliquid-candles-quality`: data quality report for freshness, gaps, duplicates, parts, and
   recent run status.
 - `candles_1m`: raw idempotent ClickHouse candle table.
 - `candles_1m_clean`: duplicate-safe research view using `argMax`.
@@ -36,19 +36,19 @@ budget, and alert thresholds.
 One cycle:
 
 ```bash
-uv run hl-run-once
+uv run hyperliquid-candles-run-once
 ```
 
 Long-running service:
 
 ```bash
-uv run hl-ingest
+uv run hyperliquid-candles
 ```
 
 Quality report:
 
 ```bash
-uv run hl-quality
+uv run hyperliquid-candles-quality
 ```
 
 Docker service:

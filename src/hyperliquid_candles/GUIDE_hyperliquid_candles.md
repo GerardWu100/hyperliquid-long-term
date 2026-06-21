@@ -1,6 +1,6 @@
 # Part 1: Conceptual explanation
 
-`hl_candles` is the service package. It coordinates three external surfaces:
+`hyperliquid_candles` is the service package. It coordinates three external surfaces:
 Hyperliquid REST, ClickHouse HTTP, and the process runtime used by Docker,
 cron, or `systemd`.
 

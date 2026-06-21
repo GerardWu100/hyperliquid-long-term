@@ -8,7 +8,7 @@ import signal
 import time
 from collections.abc import Callable
 
-from hl_candles.config import Settings
+from hyperliquid_candles.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

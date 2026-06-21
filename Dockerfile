@@ -13,4 +13,4 @@ COPY scripts ./scripts
 
 RUN uv sync --frozen --no-dev
 
-CMD ["uv", "run", "hl-ingest"]
+CMD ["uv", "run", "hyperliquid-candles"]

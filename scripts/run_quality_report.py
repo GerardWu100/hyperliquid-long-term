@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hl_candles.quality.checks import main
+from hyperliquid_candles.quality.checks import main
 
 
 if __name__ == "__main__":

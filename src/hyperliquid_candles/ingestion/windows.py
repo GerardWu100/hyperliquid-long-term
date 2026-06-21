@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from hl_candles.hyperliquid.candles import INTERVAL_MS
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS
 
 
 def last_closed_open_ms(now_ms: int | None = None) -> int:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from hl_candles.config import Settings, load_settings
+from hyperliquid_candles.config import Settings, load_settings
 
 
 def test_load_settings_reads_env_and_commented_config(tmp_path: Path) -> None:

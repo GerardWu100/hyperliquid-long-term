@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-We will build a small, robust Python service (`hl_candles`) that ingests
+We will build a small, robust Python service (`hyperliquid-candles`) that ingests
 **Hyperliquid perpetual 1-minute candles** for **all listed perpetual symbols**
 into an **existing** ClickHouse database, using the official REST
 `candleSnapshot` info endpoint. The service is **restart-safe**: on every run it
@@ -123,7 +123,7 @@ flowchart TD
         CANDLE["candleSnapshot (1m)"]
     end
 
-    subgraph SVC["hl_candles ingestion service (Docker, this project)"]
+    subgraph SVC["hyperliquid-candles ingestion service (Docker, this project)"]
         CFG["config.py\n.env + config.toml"]
         SCHED["scheduler.py\nloop + cadence"]
         APP["app.py\norchestration"]
@@ -851,7 +851,7 @@ Concrete checks (shipped in `quality/checks.py`, surfaced by
 self-explanatory (no vague `utils/`).
 
 ```text
-hyperliquid-long-term/
+hyperliquid-candles/
 ├── README.md                     # goal, scope, how to run
 ├── pyproject.toml                # deps + [project.scripts] entrypoints
 ├── uv.lock
@@ -865,7 +865,7 @@ hyperliquid-long-term/
 │   │   └── IMPLEMENTATION_PLAN.md  # this file
 │   └── user/                       # run instructions (later)
 ├── src/
-│   └── hl_candles/
+│   └── hyperliquid_candles/
 │       ├── __init__.py
 │       ├── config.py             # load .env + config.toml -> typed Settings
 │       ├── logging_setup.py      # log files YYYY-MM-DD_NNN.log + error log
@@ -901,9 +901,9 @@ hyperliquid-long-term/
 ```
 
 **Entrypoints (`pyproject.toml [project.scripts]`):**
-- `hl-ingest = "hl_candles.app:main"` — long-running loop (Docker default CMD).
-- `hl-run-once = "hl_candles.scripts_run_once:main"` (or via `scripts/`).
-- `hl-quality = "hl_candles.quality.checks:main"`.
+- `hyperliquid-candles = "hyperliquid_candles.app:main"` — long-running loop (Docker default CMD).
+- `hyperliquid-candles-run-once = "hyperliquid_candles.scripts_run_once:main"` (or via `scripts/`).
+- `hyperliquid-candles-quality = "hyperliquid_candles.quality.checks:main"`.
 
 **Dependencies (minimal, pinned via uv):**
 `clickhouse-connect` (ClickHouse HTTP client), `httpx` (REST), `tenacity`

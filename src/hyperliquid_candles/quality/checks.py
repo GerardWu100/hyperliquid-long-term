@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from hl_candles.config import Settings, load_settings
-from hl_candles.ingestion.gaps import gap_query
-from hl_candles.logging_setup import setup_logging
-from hl_candles.storage.clickhouse_client import wait_for_clickhouse
+from hyperliquid_candles.config import Settings, load_settings
+from hyperliquid_candles.ingestion.gaps import gap_query
+from hyperliquid_candles.logging_setup import setup_logging
+from hyperliquid_candles.storage.clickhouse_client import wait_for_clickhouse
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hl_candles.scripts_run_once import main
+from hyperliquid_candles.scripts_run_once import main
 
 
 if __name__ == "__main__":

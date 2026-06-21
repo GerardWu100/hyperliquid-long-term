@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hl_candles.app import run_once
+from hyperliquid_candles.app import run_once
 
 
 def main() -> None:

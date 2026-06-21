@@ -1,11 +1,11 @@
 from datetime import UTC, datetime
 
-from hl_candles.hyperliquid.candles import (
+from hyperliquid_candles.hyperliquid.candles import (
     Candle,
     dedupe_by_symbol_open_time,
     parse_candle,
 )
-from hl_candles.ingestion.windows import compute_initial_start_ms, last_closed_open_ms
+from hyperliquid_candles.ingestion.windows import compute_initial_start_ms, last_closed_open_ms
 
 
 def test_last_closed_open_ms_returns_previous_complete_minute() -> None:
