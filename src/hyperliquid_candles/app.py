@@ -12,8 +12,14 @@ from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS, Candle
 from hyperliquid_candles.hyperliquid.client import HyperliquidClient
 from hyperliquid_candles.hyperliquid.universe import select_symbols
 from hyperliquid_candles.ingestion.backfill import build_initial_backfill_rows
-from hyperliquid_candles.ingestion.incremental import WorkItem, build_incremental_work_items
-from hyperliquid_candles.ingestion.windows import compute_initial_start_ms, last_closed_open_ms
+from hyperliquid_candles.ingestion.incremental import (
+    WorkItem,
+    build_incremental_work_items,
+)
+from hyperliquid_candles.ingestion.windows import (
+    compute_initial_start_ms,
+    last_closed_open_ms,
+)
 from hyperliquid_candles.logging_setup import setup_logging
 from hyperliquid_candles.ratelimit import TokenBucket
 from hyperliquid_candles.scheduler import run_scheduler
