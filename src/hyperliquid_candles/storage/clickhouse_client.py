@@ -37,9 +37,9 @@ def connect_clickhouse(settings: ClickHouseSettings) -> Client:
     The client is intentionally opened against the server's default database
     rather than the target database. All DDL, inserts, and queries in this
     project use fully-qualified ``{database}.table`` names, so no default
-    database is needed. Connecting without the target database also lets startup
-    run ``CREATE DATABASE IF NOT EXISTS`` on a fresh ClickHouse where the target
-    database does not exist yet, instead of failing during the readiness probe.
+    database is needed. Startup may attempt ``CREATE DATABASE IF NOT EXISTS`` when
+    the user has that grant; database-scoped users can omit it if an admin already
+    created the target database.
     """
     return clickhouse_connect.get_client(
         host=settings.host,

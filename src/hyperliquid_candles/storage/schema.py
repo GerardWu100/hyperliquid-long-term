@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
+
+LOGGER = logging.getLogger(__name__)
+
+# ClickHouse ACCESS_DENIED when a database-scoped user lacks CREATE DATABASE.
+_CREATE_DATABASE_ACCESS_DENIED_CODE = 497
 
 
 class QueryExecutor(Protocol):
@@ -13,10 +19,41 @@ class QueryExecutor(Protocol):
 
 
 def create_schema(client: QueryExecutor, database: str) -> None:
-    """Create database, tables, and clean read view if they are missing."""
-    client.command(f"CREATE DATABASE IF NOT EXISTS {database}")
+    """Create database, tables, and clean read view if they are missing.
+
+    Database-scoped ClickHouse users often lack ``CREATE DATABASE`` even when the
+    target database already exists. In that case we skip database creation and
+    continue with table/view DDL, which only needs grants on ``{database}.*``.
+    """
+    _ensure_database(client=client, database=database)
     for ddl in schema_statements(database):
         client.command(ddl)
+
+
+def _ensure_database(client: QueryExecutor, database: str) -> None:
+    """Create the target database when permitted; otherwise assume it exists."""
+    try:
+        client.command(f"CREATE DATABASE IF NOT EXISTS {database}")
+    except Exception as exc:
+        if not _is_create_database_access_denied(exc):
+            raise
+        LOGGER.info(
+            "Skipping CREATE DATABASE for %s; user lacks CREATE DATABASE grant "
+            "(database must already exist)",
+            database,
+        )
+
+
+def _is_create_database_access_denied(exc: Exception) -> bool:
+    """Return True when ClickHouse rejected CREATE DATABASE for missing grants."""
+    code = getattr(exc, "code", None)
+    if code == _CREATE_DATABASE_ACCESS_DENIED_CODE:
+        return True
+
+    message = str(exc).lower()
+    return "create database" in message and (
+        "access_denied" in message or "not enough privileges" in message
+    )
 
 
 def schema_statements(database: str) -> list[str]:
