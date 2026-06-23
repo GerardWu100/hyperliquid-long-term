@@ -35,15 +35,15 @@ def _candles_ddl(database: str) -> str:
 CREATE TABLE IF NOT EXISTS {database}.candles_1m
 (
     symbol      LowCardinality(String),
-    open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(3)),
-    close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(3)),
-    open        Float64               CODEC(Gorilla, ZSTD(3)),
-    high        Float64               CODEC(Gorilla, ZSTD(3)),
-    low         Float64               CODEC(Gorilla, ZSTD(3)),
-    close       Float64               CODEC(Gorilla, ZSTD(3)),
-    volume      Float64               CODEC(Gorilla, ZSTD(3)),
-    trades      UInt32                CODEC(T64, ZSTD(3)),
-    inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(3))
+    open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    open        Float64               CODEC(Gorilla, ZSTD(12)),
+    high        Float64               CODEC(Gorilla, ZSTD(12)),
+    low         Float64               CODEC(Gorilla, ZSTD(12)),
+    close       Float64               CODEC(Gorilla, ZSTD(12)),
+    volume      Float64               CODEC(Gorilla, ZSTD(12)),
+    trades      UInt32                CODEC(T64, ZSTD(12)),
+    inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))
 )
 ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY toYYYYMM(open_time)
