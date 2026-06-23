@@ -29,15 +29,24 @@ batches, and record enough metadata to understand each ingestion cycle.
 
 Each cycle starts from ClickHouse, not from local memory. The service queries the
 latest stored candle open time for each symbol, computes the missing range plus a
-small overlap, fetches that range from Hyperliquid, and inserts all rows in a
-single batch. Symbols with no stored rows use initial backfill, clamped to the
-REST horizon.
+small overlap, fetches that range from Hyperliquid, and inserts the rows per
+symbol in bounded chunks. Symbols with no stored rows use initial backfill,
+clamped to the REST horizon. After catch-up, a gap-backfill pass refetches any
+internal missing periods that still fall inside the REST horizon, so the dataset
+heals itself after downtime or partial failures.
+
+All fetching shares one backward-paginating primitive. Hyperliquid's
+`candleSnapshot` is newest-anchored: a window wider than the available horizon
+keeps the candles nearest the end and drops the oldest, so the fetcher walks
+`endTime` backward instead of advancing `startTime`.
 
 ```text
 ClickHouse watermarks
         |
         v
-window calculation -> Hyperliquid REST -> parsed candles -> batch insert
+window calculation -> Hyperliquid REST -> parsed candles -> chunked insert
+        |                                                    |
+   gap detection (within horizon) -> refetch -> chunked insert
         |                                                    |
         +---------------- ingestion metadata <---------------+
 ```

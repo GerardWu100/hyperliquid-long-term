@@ -1,5 +1,5 @@
-# Seconds between scheduled ingestion cycles. Use 900 for 15 minutes or 3600 for hourly.
-poll_interval_sec = 900
+# Seconds between scheduled ingestion cycles. Use 1800 for 30 minutes or 3600 for hourly.
+poll_interval_sec = 1800
 
 # Number of already-stored candles to re-fetch each cycle for idempotent overlap.
 overlap_candles = 5

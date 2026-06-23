@@ -49,7 +49,7 @@ class ClickHouseSettings:
 class IngestionSettings:
     """Runtime settings for REST polling, backfill, and monitoring."""
 
-    poll_interval_sec: int = 900
+    poll_interval_sec: int = 1800
     overlap_candles: int = 5
     rest_horizon_min: int = 5000
     weight_budget_per_min: int = 900
@@ -108,7 +108,7 @@ class Settings:
             raise ValueError("symbols_allowlist must be a TOML list of strings")
 
         ingestion = IngestionSettings(
-            poll_interval_sec=int(config_values.get("poll_interval_sec", 900)),
+            poll_interval_sec=int(config_values.get("poll_interval_sec", 1800)),
             overlap_candles=int(config_values.get("overlap_candles", 5)),
             rest_horizon_min=int(config_values.get("rest_horizon_min", 5000)),
             weight_budget_per_min=int(config_values.get("weight_budget_per_min", 900)),

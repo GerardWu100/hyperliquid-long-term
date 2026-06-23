@@ -28,11 +28,11 @@ def query_watermarks_ms(client: QueryClient, database: str) -> dict[str, int | N
         if max_open_time is None:
             watermarks[str(symbol)] = None
         else:
-            watermarks[str(symbol)] = _datetime_to_ms(max_open_time)
+            watermarks[str(symbol)] = datetime_to_ms(max_open_time)
     return watermarks
 
 
-def _datetime_to_ms(value: datetime) -> int:
+def datetime_to_ms(value: datetime) -> int:
     """Convert a ClickHouse datetime value to Unix epoch milliseconds.
 
     The `candles_1m` column is `DateTime64(3, 'UTC')`, which the driver normally

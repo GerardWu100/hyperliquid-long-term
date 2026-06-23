@@ -58,8 +58,11 @@ docker compose up --build
 ```
 
 Inside a bridged Docker container, `localhost` means the ingestion container
-itself. Use the ClickHouse service name on a shared external Docker network, or
-use `host.docker.internal` with the `extra_hosts` entry in `docker-compose.yml`.
+itself, not the host. This service joins the shared external Docker network
+`single`, where ClickHouse also runs, and reaches it by service name. Set
+`IVYDB_CLICKHOUSE_HOST` to the ClickHouse service/container name and
+`IVYDB_CLICKHOUSE_PORT` to its internal HTTP port (8123 by default), not a
+host-published port.
 
 ## Verification
 
@@ -69,7 +72,8 @@ uv run ruff check .
 ```
 
 The unit tests cover configuration parsing, 1-minute window arithmetic, candle
-payload parsing, initial backfill pagination, and incremental overlap windows.
+payload parsing, backward-paginated window fetching, incremental overlap windows,
+chunked inserts, and recoverable-gap detection and parsing.
 
 ## Scope
 

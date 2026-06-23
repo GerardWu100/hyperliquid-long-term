@@ -1,10 +1,10 @@
 from hyperliquid_candles.hyperliquid.candles import Candle
-from hyperliquid_candles.ingestion.backfill import build_initial_backfill_rows
+from hyperliquid_candles.ingestion.fetch import fetch_candle_window
 from hyperliquid_candles.ingestion.incremental import build_incremental_work_items
 
 
 class FakeCandleSource:
-    """Small candle source used to test pagination without network calls."""
+    """Candle source that returns scripted pages and records request windows."""
 
     def __init__(self, pages: list[list[Candle]]) -> None:
         self.pages = pages
@@ -17,26 +17,48 @@ class FakeCandleSource:
         return self.pages.pop(0)
 
 
-def test_build_initial_backfill_rows_pages_until_cursor_stops_advancing() -> None:
-    """Initial backfill should page by the newest open time and stop when it stalls."""
-    page_one = [
-        Candle("BTC", 0, 59_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1),
-        Candle("BTC", 60_000, 119_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1),
-    ]
-    page_two = [
-        Candle("BTC", 120_000, 179_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1),
-    ]
-    source = FakeCandleSource([page_one, page_two])
+def _candle(open_ms: int) -> Candle:
+    """Build a minimal candle at a given open time for pagination tests."""
+    return Candle("BTC", open_ms, open_ms + 59_999, 1.0, 1.0, 1.0, 1.0, 1.0, 1)
 
-    rows = build_initial_backfill_rows(
-        symbol="BTC",
-        start_ms=0,
-        end_ms=180_000,
-        source=source,
-    )
+
+def test_fetch_candle_window_pages_backward_by_end_time() -> None:
+    """A window wider than one page must be assembled by walking endTime backward.
+
+    Hyperliquid is newest-anchored: the first request for [0, 180_000] returns the
+    newest chunk near the end, so the fetcher must lower endTime to reach the
+    older candles rather than advancing startTime.
+    """
+    newest_page = [_candle(120_000), _candle(180_000)]
+    older_page = [_candle(0), _candle(60_000)]
+    source = FakeCandleSource([newest_page, older_page])
+
+    rows = fetch_candle_window(symbol="BTC", start_ms=0, end_ms=180_000, source=source)
+
+    assert [row.open_time_ms for row in rows] == [0, 60_000, 120_000, 180_000]
+    # Second request lowered endTime to just before the oldest row already seen.
+    assert source.calls == [("BTC", 0, 180_000), ("BTC", 0, 60_000)]
+
+
+def test_fetch_candle_window_stops_after_single_page_within_horizon() -> None:
+    """When the first page already reaches the requested start, stop immediately."""
+    single_page = [_candle(0), _candle(60_000), _candle(120_000)]
+    source = FakeCandleSource([single_page])
+
+    rows = fetch_candle_window(symbol="BTC", start_ms=0, end_ms=120_000, source=source)
 
     assert [row.open_time_ms for row in rows] == [0, 60_000, 120_000]
-    assert source.calls == [("BTC", 0, 180_000), ("BTC", 120_000, 180_000)]
+    assert source.calls == [("BTC", 0, 120_000)]
+
+
+def test_fetch_candle_window_stops_on_empty_page() -> None:
+    """An empty response (window outside the REST horizon) yields no rows."""
+    source = FakeCandleSource([[]])
+
+    rows = fetch_candle_window(symbol="BTC", start_ms=0, end_ms=120_000, source=source)
+
+    assert rows == []
+    assert source.calls == [("BTC", 0, 120_000)]
 
 
 def test_build_incremental_work_items_overlap_and_clamp_to_horizon() -> None:

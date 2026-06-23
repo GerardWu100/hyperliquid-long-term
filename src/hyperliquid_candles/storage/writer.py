@@ -33,18 +33,52 @@ CANDLE_COLUMNS = [
 ]
 
 
-def insert_candles(client: InsertClient, database: str, candles: list[Candle]) -> int:
-    """Insert parsed candles and return the number of rows attempted."""
+def insert_candles(
+    client: InsertClient,
+    database: str,
+    candles: list[Candle],
+    batch_max_rows: int,
+) -> int:
+    """Insert parsed candles in bounded chunks and return rows attempted.
+
+    Rows are sent in slices of at most ``batch_max_rows`` so a single insert call
+    never holds an unbounded number of rows in memory or in one HTTP request.
+    This matters on a cold start with ``symbols_mode = "all"``, where a naive
+    single insert would buffer hundreds of symbols times thousands of candles at
+    once.
+
+    Parameters
+    ----------
+    client:
+        ClickHouse insert client.
+    database:
+        Target database name.
+    candles:
+        Parsed candles to insert. ClickHouse ``ReplacingMergeTree`` makes repeated
+        inserts of the same ``(symbol, open_time)`` key idempotent.
+    batch_max_rows:
+        Maximum rows per insert call. Must be positive (validated in config).
+
+    Returns
+    -------
+    int
+        Total number of rows sent across all chunks.
+    """
     if not candles:
         return 0
 
-    rows = [candle_to_insert_row(candle) for candle in candles]
-    client.insert(
-        table=f"{database}.candles_1m",
-        data=rows,
-        column_names=CANDLE_COLUMNS,
-    )
-    return len(rows)
+    total_inserted = 0
+    for chunk_start in range(0, len(candles), batch_max_rows):
+        chunk = candles[chunk_start : chunk_start + batch_max_rows]
+        rows = [candle_to_insert_row(candle) for candle in chunk]
+        client.insert(
+            table=f"{database}.candles_1m",
+            data=rows,
+            column_names=CANDLE_COLUMNS,
+        )
+        total_inserted += len(rows)
+
+    return total_inserted
 
 
 def candle_to_insert_row(candle: Candle) -> tuple[object, ...]:

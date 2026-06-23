@@ -1,21 +1,34 @@
-"""Application orchestration for Hyperliquid candle ingestion."""
+"""Application orchestration for Hyperliquid candle ingestion.
+
+One ingestion cycle runs three phases against the active perpetual universe:
+
+1. Initial backfill for symbols with no stored candles yet.
+2. Incremental catch-up for stored symbols, starting from their ClickHouse
+   watermark minus a small overlap and clamped to the REST horizon.
+3. Gap backfill that refetches any internal missing periods still inside the
+   REST horizon, so the dataset self-heals after downtime or partial failures.
+
+Every phase shares one backward-paginating fetch primitive and inserts per
+symbol in bounded chunks, so memory stays flat even with the full universe and a
+single failing symbol cannot sink the whole cycle's writes.
+"""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 from hyperliquid_candles.config import Settings, load_settings
-from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS, Candle
+from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS
 from hyperliquid_candles.hyperliquid.client import HyperliquidClient
 from hyperliquid_candles.hyperliquid.universe import select_symbols
-from hyperliquid_candles.ingestion.backfill import build_initial_backfill_rows
-from hyperliquid_candles.ingestion.incremental import (
-    WorkItem,
-    build_incremental_work_items,
+from hyperliquid_candles.ingestion.fetch import fetch_candle_window
+from hyperliquid_candles.ingestion.gaps import (
+    parse_gap_rows,
+    recoverable_gaps_query,
 )
+from hyperliquid_candles.ingestion.incremental import build_incremental_work_items
 from hyperliquid_candles.ingestion.windows import (
     compute_initial_start_ms,
     last_closed_open_ms,
@@ -34,7 +47,7 @@ from hyperliquid_candles.storage.runs import (
     utc_now,
 )
 from hyperliquid_candles.storage.schema import create_schema
-from hyperliquid_candles.storage.watermarks import query_watermarks_ms
+from hyperliquid_candles.storage.watermarks import datetime_to_ms, query_watermarks_ms
 from hyperliquid_candles.storage.writer import insert_candles
 
 LOGGER = logging.getLogger(__name__)
@@ -98,7 +111,7 @@ def run_ingestion_cycle(
     clickhouse_client: object,
     hyperliquid_client: object,
 ) -> CycleResult:
-    """Run initial backfill for new symbols plus incremental overlap for stored symbols."""
+    """Run initial backfill, incremental overlap, and gap repair for the universe."""
     run_id = new_run_id()
     started_at = utc_now()
     database = settings.clickhouse.database
@@ -111,37 +124,33 @@ def run_ingestion_cycle(
     )
     watermarks_ms = query_watermarks_ms(clickhouse_client, database=database)
     last_closed_ms = last_closed_open_ms()
+    horizon_floor_ms = (
+        last_closed_ms - settings.ingestion.rest_horizon_min * INTERVAL_MS
+    )
 
-    all_rows: list[Candle] = []
     symbol_statuses: list[SymbolStatus] = []
-    symbols_failed = 0
+    failed_symbols: set[str] = set()
+    candles_inserted = 0
 
+    # Phase 1: brand-new symbols that have never been stored.
     new_symbols = tuple(
         symbol for symbol in symbols if watermarks_ms.get(symbol) is None
     )
     for symbol in new_symbols:
-        try:
-            rows, status = _fetch_initial_symbol(
-                run_id=run_id,
-                symbol=symbol,
-                last_closed_ms=last_closed_ms,
-                settings=settings,
-                hyperliquid_client=hyperliquid_client,
-            )
-            all_rows.extend(rows)
-            symbol_statuses.append(status)
-        except Exception as exc:
-            symbols_failed += 1
-            symbol_statuses.append(
-                _failed_symbol_status(
-                    run_id=run_id,
-                    symbol=symbol,
-                    mode="initial",
-                    last_closed_ms=last_closed_ms,
-                    error=exc,
-                )
-            )
+        inserted, status = _ingest_initial_symbol(
+            run_id=run_id,
+            symbol=symbol,
+            last_closed_ms=last_closed_ms,
+            settings=settings,
+            clickhouse_client=clickhouse_client,
+            hyperliquid_client=hyperliquid_client,
+        )
+        candles_inserted += inserted
+        symbol_statuses.append(status)
+        if status.status == "failed":
+            failed_symbols.add(symbol)
 
+    # Phase 2: incremental overlap for already-stored symbols.
     work_items = build_incremental_work_items(
         symbols=symbols,
         watermarks_ms=watermarks_ms,
@@ -150,67 +159,82 @@ def run_ingestion_cycle(
         interval_ms=INTERVAL_MS,
         rest_horizon_min=settings.ingestion.rest_horizon_min,
     )
-    incremental_rows, incremental_statuses, incremental_failures = (
-        _fetch_incremental_symbols(
+    for item in work_items:
+        inserted, status = _ingest_window(
             run_id=run_id,
-            work_items=work_items,
+            symbol=item.symbol,
+            start_ms=item.start_ms,
+            end_ms=item.end_ms,
+            settings=settings,
+            clickhouse_client=clickhouse_client,
             hyperliquid_client=hyperliquid_client,
         )
-    )
-    all_rows.extend(incremental_rows)
-    symbol_statuses.extend(incremental_statuses)
-    symbols_failed += incremental_failures
+        candles_inserted += inserted
+        symbol_statuses.append(status)
+        if status.status == "failed":
+            failed_symbols.add(item.symbol)
 
-    candles_inserted = 0
-    final_status = "success" if symbols_failed == 0 else "partial"
-    error = ""
+    # Phase 3: repair internal gaps that are still inside the REST horizon.
+    gap_inserted, gap_statuses, gap_failures = _backfill_recoverable_gaps(
+        run_id=run_id,
+        tracked_symbols=set(symbols),
+        horizon_floor_ms=horizon_floor_ms,
+        settings=settings,
+        clickhouse_client=clickhouse_client,
+        hyperliquid_client=hyperliquid_client,
+    )
+    candles_inserted += gap_inserted
+    symbol_statuses.extend(gap_statuses)
+    failed_symbols.update(gap_failures)
+
+    symbols_total = len(symbols)
+    symbols_failed = len(failed_symbols)
+    symbols_ok = max(symbols_total - symbols_failed, 0)
+    final_status = _cycle_status(
+        symbols_total=symbols_total, symbols_failed=symbols_failed
+    )
+
+    # Metadata writes are best-effort: a failure here must not crash the loop,
+    # because the candle rows (the real product) are already committed and the
+    # next cycle recovers any missed window from watermarks.
     try:
-        candles_inserted = insert_candles(
-            clickhouse_client,
-            database=database,
-            candles=all_rows,
-        )
         insert_symbol_statuses(
             clickhouse_client, database=database, statuses=symbol_statuses
         )
-    except Exception as exc:
-        final_status = "failed"
-        error = str(exc)
-        symbols_failed = len(symbols)
-        LOGGER.exception("Insert failed; no external watermark has been advanced")
+    except Exception:
+        LOGGER.exception("Failed to write per-symbol status rows")
 
-    symbols_ok = max(len(symbols) - symbols_failed, 0)
-    # A cycle that seeded at least one brand-new symbol is summarised as an
-    # initial run; otherwise it is a steady-state incremental run. Per-symbol
-    # modes are still recorded precisely in ingestion_symbol_status.
     run_mode = "initial" if new_symbols else "incremental"
-    insert_run_summary(
-        clickhouse_client,
-        database=database,
-        summary=RunSummary(
-            run_id=run_id,
-            mode=run_mode,
-            started_at=started_at,
-            finished_at=utc_now(),
-            symbols_total=len(symbols),
-            symbols_ok=symbols_ok,
-            symbols_failed=symbols_failed,
-            candles_inserted=candles_inserted,
-            status=final_status,
-            error=error,
-        ),
-    )
+    try:
+        insert_run_summary(
+            clickhouse_client,
+            database=database,
+            summary=RunSummary(
+                run_id=run_id,
+                mode=run_mode,
+                started_at=started_at,
+                finished_at=utc_now(),
+                symbols_total=symbols_total,
+                symbols_ok=symbols_ok,
+                symbols_failed=symbols_failed,
+                candles_inserted=candles_inserted,
+                status=final_status,
+                error="",
+            ),
+        )
+    except Exception:
+        LOGGER.exception("Failed to write run summary row")
 
     LOGGER.info(
         "Ingestion cycle complete run_id=%s status=%s symbols=%s rows=%s",
         run_id,
         final_status,
-        len(symbols),
+        symbols_total,
         candles_inserted,
     )
     return CycleResult(
         run_id=run_id,
-        symbols_total=len(symbols),
+        symbols_total=symbols_total,
         symbols_ok=symbols_ok,
         symbols_failed=symbols_failed,
         candles_inserted=candles_inserted,
@@ -218,14 +242,24 @@ def run_ingestion_cycle(
     )
 
 
-def _fetch_initial_symbol(
+def _cycle_status(symbols_total: int, symbols_failed: int) -> str:
+    """Map per-symbol failure counts to a run-level status label."""
+    if symbols_failed == 0:
+        return "success"
+    if symbols_total > 0 and symbols_failed >= symbols_total:
+        return "failed"
+    return "partial"
+
+
+def _ingest_initial_symbol(
     run_id: UUID,
     symbol: str,
     last_closed_ms: int,
     settings: Settings,
+    clickhouse_client: object,
     hyperliquid_client: object,
-) -> tuple[list[Candle], SymbolStatus]:
-    """Fetch initial backfill rows and status for one symbol."""
+) -> tuple[int, SymbolStatus]:
+    """Fetch and store the initial backfill window for one new symbol."""
     requested_ms, effective_ms, was_clamped = compute_initial_start_ms(
         last_closed_ms=last_closed_ms,
         rest_horizon_min=settings.ingestion.rest_horizon_min,
@@ -234,98 +268,157 @@ def _fetch_initial_symbol(
     if was_clamped:
         LOGGER.warning("Initial backfill for %s clamped to REST horizon", symbol)
 
-    rows = build_initial_backfill_rows(
-        symbol=symbol,
-        start_ms=effective_ms,
-        end_ms=last_closed_ms,
-        source=hyperliquid_client,
-    )
-    status = SymbolStatus(
+    return _fetch_store_status(
         run_id=run_id,
         symbol=symbol,
         mode="initial",
-        requested_start=ms_to_datetime(requested_ms),
-        requested_end=ms_to_datetime(last_closed_ms),
-        effective_start=ms_to_datetime(effective_ms),
-        rows_fetched=len(rows),
-        rows_inserted=len(rows),
-        status="success",
+        requested_start_ms=requested_ms,
+        effective_start_ms=effective_ms,
+        end_ms=last_closed_ms,
+        settings=settings,
+        clickhouse_client=clickhouse_client,
+        hyperliquid_client=hyperliquid_client,
     )
-    return rows, status
 
 
-def _fetch_incremental_symbols(
+def _ingest_window(
     run_id: UUID,
-    work_items: Sequence[WorkItem],
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+    settings: Settings,
+    clickhouse_client: object,
     hyperliquid_client: object,
-) -> tuple[list[Candle], list[SymbolStatus], int]:
-    """Fetch incremental rows while preserving per-symbol failure visibility."""
-    rows: list[Candle] = []
-    statuses: list[SymbolStatus] = []
-    failures = 0
-
-    for item in work_items:
-        try:
-            symbol_rows = hyperliquid_client.fetch_candles(
-                symbol=item.symbol,
-                start_ms=item.start_ms,
-                end_ms=item.end_ms,
-            )
-            rows.extend(symbol_rows)
-            statuses.append(
-                SymbolStatus(
-                    run_id=run_id,
-                    symbol=item.symbol,
-                    mode="incremental",
-                    requested_start=ms_to_datetime(item.start_ms),
-                    requested_end=ms_to_datetime(item.end_ms),
-                    effective_start=ms_to_datetime(item.start_ms),
-                    rows_fetched=len(symbol_rows),
-                    rows_inserted=len(symbol_rows),
-                    status="success",
-                )
-            )
-        except Exception as exc:
-            failures += 1
-            statuses.append(
-                SymbolStatus(
-                    run_id=run_id,
-                    symbol=item.symbol,
-                    mode="incremental",
-                    requested_start=ms_to_datetime(item.start_ms),
-                    requested_end=ms_to_datetime(item.end_ms),
-                    effective_start=ms_to_datetime(item.start_ms),
-                    rows_fetched=0,
-                    rows_inserted=0,
-                    status="failed",
-                    error=str(exc),
-                )
-            )
-
-    return rows, statuses, failures
+) -> tuple[int, SymbolStatus]:
+    """Fetch and store one incremental window for a stored symbol."""
+    return _fetch_store_status(
+        run_id=run_id,
+        symbol=symbol,
+        mode="incremental",
+        requested_start_ms=start_ms,
+        effective_start_ms=start_ms,
+        end_ms=end_ms,
+        settings=settings,
+        clickhouse_client=clickhouse_client,
+        hyperliquid_client=hyperliquid_client,
+    )
 
 
-def _failed_symbol_status(
+def _fetch_store_status(
     run_id: UUID,
     symbol: str,
     mode: str,
-    last_closed_ms: int,
-    error: Exception,
-) -> SymbolStatus:
-    """Build a failure status row when a symbol fails before a request window exists."""
-    last_closed = ms_to_datetime(last_closed_ms)
-    return SymbolStatus(
-        run_id=run_id,
-        symbol=symbol,
-        mode=mode,
-        requested_start=last_closed,
-        requested_end=last_closed,
-        effective_start=last_closed,
-        rows_fetched=0,
-        rows_inserted=0,
-        status="failed",
-        error=str(error),
-    )
+    requested_start_ms: int,
+    effective_start_ms: int,
+    end_ms: int,
+    settings: Settings,
+    clickhouse_client: object,
+    hyperliquid_client: object,
+) -> tuple[int, SymbolStatus]:
+    """Fetch a window, insert it in bounded chunks, and build a status row.
+
+    A failure isolated to this symbol returns a ``failed`` status with zero rows
+    so the rest of the cycle proceeds. The shared backward-paginating fetcher
+    guarantees the full window is retrieved even if it ever exceeds one API page.
+    """
+    database = settings.clickhouse.database
+    batch_max_rows = settings.ingestion.batch_insert_max_rows
+    try:
+        rows = fetch_candle_window(
+            symbol=symbol,
+            start_ms=effective_start_ms,
+            end_ms=end_ms,
+            source=hyperliquid_client,
+        )
+        inserted = insert_candles(
+            clickhouse_client,
+            database=database,
+            candles=rows,
+            batch_max_rows=batch_max_rows,
+        )
+        status = SymbolStatus(
+            run_id=run_id,
+            symbol=symbol,
+            mode=mode,
+            requested_start=ms_to_datetime(requested_start_ms),
+            requested_end=ms_to_datetime(end_ms),
+            effective_start=ms_to_datetime(effective_start_ms),
+            rows_fetched=len(rows),
+            rows_inserted=inserted,
+            status="success",
+        )
+        return inserted, status
+    except Exception as exc:
+        LOGGER.exception("Symbol %s failed during %s ingestion", symbol, mode)
+        status = SymbolStatus(
+            run_id=run_id,
+            symbol=symbol,
+            mode=mode,
+            requested_start=ms_to_datetime(requested_start_ms),
+            requested_end=ms_to_datetime(end_ms),
+            effective_start=ms_to_datetime(effective_start_ms),
+            rows_fetched=0,
+            rows_inserted=0,
+            status="failed",
+            error=str(exc),
+        )
+        return 0, status
+
+
+def _backfill_recoverable_gaps(
+    run_id: UUID,
+    tracked_symbols: set[str],
+    horizon_floor_ms: int,
+    settings: Settings,
+    clickhouse_client: object,
+    hyperliquid_client: object,
+) -> tuple[int, list[SymbolStatus], set[str]]:
+    """Detect and refetch internal gaps still inside the REST horizon.
+
+    Returns the rows inserted, per-gap status rows, and the set of symbols whose
+    gap repair failed. A failure in the detection query itself is swallowed (the
+    candle product is already committed) so the cycle still finishes cleanly.
+    """
+    database = settings.clickhouse.database
+    try:
+        result = clickhouse_client.query(
+            recoverable_gaps_query(database, horizon_floor_ms)
+        )
+        gaps = parse_gap_rows(list(result.result_rows), datetime_to_ms)
+    except Exception:
+        LOGGER.exception("Gap detection failed; skipping gap backfill this cycle")
+        return 0, [], set()
+
+    inserted_total = 0
+    statuses: list[SymbolStatus] = []
+    failed_symbols: set[str] = set()
+
+    for gap in gaps:
+        # Skip gaps for symbols we are not tracking (for example delisted coins
+        # whose historical rows remain but are no longer in the active universe).
+        if gap.symbol not in tracked_symbols:
+            continue
+
+        LOGGER.info(
+            "Backfilling gap symbol=%s missing_minutes=%s",
+            gap.symbol,
+            gap.missing_minutes,
+        )
+        inserted, status = _ingest_window(
+            run_id=run_id,
+            symbol=gap.symbol,
+            start_ms=gap.gap_after_ms,
+            end_ms=gap.gap_before_ms,
+            settings=settings,
+            clickhouse_client=clickhouse_client,
+            hyperliquid_client=hyperliquid_client,
+        )
+        inserted_total += inserted
+        statuses.append(status)
+        if status.status == "failed":
+            failed_symbols.add(gap.symbol)
+
+    return inserted_total, statuses, failed_symbols
 
 
 def main() -> None:
