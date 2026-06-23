@@ -54,8 +54,17 @@ uv run hyperliquid-candles-quality
 Docker service:
 
 ```bash
+mkdir -p ~/.containers/hyperliquid-candles
+cp .env.example ~/.containers/hyperliquid-candles/.env
+cp config.toml ~/.containers/hyperliquid-candles/config.toml
+# Edit ~/.containers/hyperliquid-candles/.env (not the repo-root .env)
 docker compose up --build
 ```
+
+The compose file bind-mounts `~/.containers/hyperliquid-candles` to `/data`
+and sets `HL_DATA_DIR=/data`, so the container reads `.env`, `config.toml`, and
+writes `logs/` from that host folder only. Editing `.env` in the repo root does
+not affect the running container.
 
 Inside a bridged Docker container, `localhost` means the ingestion container
 itself, not the host. This service joins the shared external Docker network

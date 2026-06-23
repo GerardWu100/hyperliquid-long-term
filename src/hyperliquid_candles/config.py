@@ -174,7 +174,8 @@ def load_settings(
     # a value can be silently corrupted (for example a password containing `$`
     # mangled by shell expansion). Letting the file win keeps the documented
     # `.env` as the single source of truth and makes loading deterministic.
-    file_env = dotenv_values(resolved_env_path) if resolved_env_path.exists() else {}
+    env_file_exists = resolved_env_path.exists()
+    file_env = dotenv_values(resolved_env_path) if env_file_exists else {}
     merged_env: dict[str, str | None] = {
         key: os.environ[key] for key in _CLICKHOUSE_ENV_KEYS if key in os.environ
     }
@@ -184,7 +185,22 @@ def load_settings(
     if resolved_config_path.exists():
         config_values = tomllib.loads(resolved_config_path.read_text(encoding="utf-8"))
 
-    return Settings.from_values(env_values=merged_env, config_values=config_values)
+    try:
+        return Settings.from_values(env_values=merged_env, config_values=config_values)
+    except ValueError as exc:
+        if "Missing required environment variable" not in str(exc):
+            raise
+        if os.environ.get("HL_DATA_DIR"):
+            raise ValueError(
+                f"{exc}. Docker reads runtime files from {base_dir} "
+                f"(host bind: ~/.containers/hyperliquid-candles). "
+                f"Copy .env.example there as {resolved_env_path.name} and edit it; "
+                f"the repo-root .env is not mounted into the container."
+            ) from exc
+        raise ValueError(
+            f"{exc}. Create {resolved_env_path} from .env.example "
+            f"(for example: cp .env.example .env) and set ClickHouse connection values."
+        ) from exc
 
 
 _CLICKHOUSE_ENV_KEYS = (

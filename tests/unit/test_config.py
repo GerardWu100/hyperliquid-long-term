@@ -60,3 +60,12 @@ def test_settings_reject_invalid_symbol_mode() -> None:
             },
             config_values={"symbols_mode": "everything"},
         )
+
+
+def test_load_settings_hints_when_hl_data_dir_env_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing ClickHouse config under HL_DATA_DIR should mention the bind mount."""
+    monkeypatch.setenv("HL_DATA_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match=r"~/.containers/hyperliquid-candles"):
+        load_settings()
