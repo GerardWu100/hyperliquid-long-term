@@ -69,7 +69,9 @@ def test_run_once_can_skip_logging_setup_for_scheduler_cycles(monkeypatch) -> No
         )
 
     monkeypatch.setattr(app, "setup_logging", fake_setup_logging)
-    monkeypatch.setattr(app, "wait_for_clickhouse", lambda **kwargs: FakeValidatedClickHouse())
+    monkeypatch.setattr(
+        app, "wait_for_clickhouse", lambda **kwargs: FakeValidatedClickHouse()
+    )
     monkeypatch.setattr(app, "create_schema", lambda **kwargs: None)
     monkeypatch.setattr(app, "HyperliquidClient", FakeHyperliquidClient)
     monkeypatch.setattr(app, "run_ingestion_cycle", fake_run_ingestion_cycle)
