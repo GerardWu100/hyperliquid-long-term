@@ -8,7 +8,8 @@ overlap_candles = 5
 rest_horizon_min = 5000
 
 # Hyperliquid request pacing target in request-weight units per minute.
-weight_budget_per_min = 900
+# Hyperliquid's per-IP REST ceiling is 1200 weight/min; this stays below it.
+weight_budget_per_min = 1000
 
 # HTTP timeout for Hyperliquid REST requests, in seconds.
 request_timeout_sec = 30
