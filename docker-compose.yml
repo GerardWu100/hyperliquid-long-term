@@ -3,17 +3,17 @@ services:
     build: .
     container_name: hyperliquid-candles
     restart: unless-stopped
-    # One bind, one host folder. Everything this service reads or writes
-    # (.env, config.toml, logs/) lives under ~/.containers/hyperliquid-candles
-    # and is mounted as /data. HL_DATA_DIR tells the app to read all runtime
-    # files from there instead of the repo root.
+    # Logs (and optional config.toml overrides) live under
+    # ~/.containers/hyperliquid-candles, mounted as /data. ClickHouse secrets
+    # always come from the repo-root .env, bind-mounted into the image below.
     environment:
       - HL_DATA_DIR=/data
     volumes:
       - $HOME/.containers/hyperliquid-candles:/data
+      - ./.env:/app/.env:ro
     # ClickHouse runs on the shared external Docker network "single". This
     # service joins that network and reaches ClickHouse by its service/container
-    # name over the internal HTTP port. Set in .env:
+    # name over the internal HTTP port. Set in the repo-root .env:
     #   IVYDB_CLICKHOUSE_HOST = the ClickHouse container/service name on "single"
     #   IVYDB_CLICKHOUSE_PORT = the internal HTTP port (8123 by default), not the
     #                           host-published port, because containers talk

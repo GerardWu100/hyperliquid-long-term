@@ -54,17 +54,14 @@ uv run hyperliquid-candles-quality
 Docker service:
 
 ```bash
-mkdir -p ~/.containers/hyperliquid-candles
-cp .env.example ~/.containers/hyperliquid-candles/.env
-cp config.toml ~/.containers/hyperliquid-candles/config.toml
-# Edit ~/.containers/hyperliquid-candles/.env (not the repo-root .env)
+cp .env.example .env   # edit ClickHouse settings in repo-root .env
+mkdir -p ~/.containers/hyperliquid-candles   # logs only; created automatically
 docker compose up --build
 ```
 
-The compose file bind-mounts `~/.containers/hyperliquid-candles` to `/data`
-and sets `HL_DATA_DIR=/data`, so the container reads `.env`, `config.toml`, and
-writes `logs/` from that host folder only. Editing `.env` in the repo root does
-not affect the running container.
+Compose bind-mounts the repo-root `.env` into the container and stores logs
+under `~/.containers/hyperliquid-candles`. Optional `config.toml` overrides can
+also be placed in that folder.
 
 Inside a bridged Docker container, `localhost` means the ingestion container
 itself, not the host. This service joins the shared external Docker network

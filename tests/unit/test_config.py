@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from hyperliquid_candles import config as config_module
 from hyperliquid_candles.config import Settings, load_settings
 
 
@@ -62,10 +63,72 @@ def test_settings_reject_invalid_symbol_mode() -> None:
         )
 
 
-def test_load_settings_hints_when_hl_data_dir_env_missing(
+def test_load_settings_reads_repo_root_env_when_hl_data_dir_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Missing ClickHouse config under HL_DATA_DIR should mention the bind mount."""
-    monkeypatch.setenv("HL_DATA_DIR", str(tmp_path))
-    with pytest.raises(ValueError, match=r"~/.containers/hyperliquid-candles"):
+    """`.env` in the repo root should work even when logs use HL_DATA_DIR."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("HL_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "IVYDB_CLICKHOUSE_HOST=clickhouse",
+                "IVYDB_CLICKHOUSE_PORT=8123",
+                "IVYDB_CLICKHOUSE_USERNAME=reader",
+                "IVYDB_CLICKHOUSE_PASSWORD=secret",
+                "IVYDB_CLICKHOUSE_SECURE=false",
+                "IVYDB_CLICKHOUSE_DATABASE=hyperliquid",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text('symbols_mode = "all"\n', encoding="utf-8")
+
+    settings = load_settings()
+
+    assert settings.clickhouse.host == "clickhouse"
+    assert settings.clickhouse.port == 8123
+
+
+def test_load_settings_prefers_hl_data_dir_config_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An optional config.toml under HL_DATA_DIR should override the repo copy."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("HL_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "IVYDB_CLICKHOUSE_HOST=clickhouse",
+                "IVYDB_CLICKHOUSE_PORT=8123",
+                "IVYDB_CLICKHOUSE_USERNAME=reader",
+                "IVYDB_CLICKHOUSE_PASSWORD=secret",
+                "IVYDB_CLICKHOUSE_SECURE=false",
+                "IVYDB_CLICKHOUSE_DATABASE=hyperliquid",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text(
+        "poll_interval_sec = 1800\n", encoding="utf-8"
+    )
+    (data_dir / "config.toml").write_text("poll_interval_sec = 900\n", encoding="utf-8")
+
+    settings = load_settings()
+
+    assert settings.ingestion.poll_interval_sec == 900
+
+
+def test_load_settings_hints_when_repo_root_env_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing repo-root `.env` should mention creating it from the example file."""
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    with pytest.raises(ValueError, match=r"cp \.env\.example \.env"):
         load_settings()

@@ -18,20 +18,38 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def data_dir() -> Path:
-    """Return the directory holding `.env`, `config.toml`, and `logs/`.
+    """Return the directory for writable runtime files such as ``logs/``.
 
-    Defaults to the project root, which is what local ``uv run`` commands use.
-    Set the ``HL_DATA_DIR`` environment variable to relocate every runtime file
-    to one directory. The Docker service sets ``HL_DATA_DIR=/data`` and bind
-    mounts ``~/.containers/hyperliquid-candles`` there, so the whole service is
-    configured from a single host folder with one bind.
+    Defaults to the project root for local ``uv run`` commands. Set
+    ``HL_DATA_DIR`` to relocate logs (and optional ``config.toml`` overrides)
+    to another directory. The Docker service sets ``HL_DATA_DIR=/data`` and
+    bind-mounts ``~/.containers/hyperliquid-candles`` there for logs only.
+
+    ClickHouse secrets always load from ``PROJECT_ROOT / ".env"`` so one file in
+    the repo root works for both local runs and Docker (compose bind-mounts it
+    into the image at ``/app/.env``).
 
     This is resolved from the process environment rather than from ``.env`` on
-    purpose: the loader needs to know where ``.env`` lives before it can read it,
-    so the location itself cannot come from inside that file.
+    purpose: the loader needs to know where writable files live before it can
+    read ``.env``, so that location cannot come from inside the secrets file.
     """
     override = os.environ.get("HL_DATA_DIR")
     return Path(override) if override else PROJECT_ROOT
+
+
+def _resolve_config_path(config_path: Path | None) -> Path:
+    """Return the ingestion ``config.toml`` path.
+
+    When ``HL_DATA_DIR`` points at a directory that contains ``config.toml``,
+    that file wins so Docker operators can override tunables without rebuilding
+    the image. Otherwise the baked-in repo ``config.toml`` is used.
+    """
+    if config_path is not None:
+        return config_path
+    data_config = data_dir() / "config.toml"
+    if data_config.exists():
+        return data_config
+    return PROJECT_ROOT / "config.toml"
 
 
 @dataclass(frozen=True)
@@ -164,9 +182,8 @@ def load_settings(
     env_path: Path | None = None,
 ) -> Settings:
     """Load settings from project files and the current process environment."""
-    base_dir = data_dir()
-    resolved_config_path = config_path or base_dir / "config.toml"
-    resolved_env_path = env_path or base_dir / ".env"
+    resolved_config_path = _resolve_config_path(config_path)
+    resolved_env_path = env_path or PROJECT_ROOT / ".env"
 
     # Precedence: the `.env` file is the authoritative source for ClickHouse
     # connection values; the process environment only fills keys the file omits.
@@ -174,8 +191,7 @@ def load_settings(
     # a value can be silently corrupted (for example a password containing `$`
     # mangled by shell expansion). Letting the file win keeps the documented
     # `.env` as the single source of truth and makes loading deterministic.
-    env_file_exists = resolved_env_path.exists()
-    file_env = dotenv_values(resolved_env_path) if env_file_exists else {}
+    file_env = dotenv_values(resolved_env_path) if resolved_env_path.exists() else {}
     merged_env: dict[str, str | None] = {
         key: os.environ[key] for key in _CLICKHOUSE_ENV_KEYS if key in os.environ
     }
@@ -190,13 +206,6 @@ def load_settings(
     except ValueError as exc:
         if "Missing required environment variable" not in str(exc):
             raise
-        if os.environ.get("HL_DATA_DIR"):
-            raise ValueError(
-                f"{exc}. Docker reads runtime files from {base_dir} "
-                f"(host bind: ~/.containers/hyperliquid-candles). "
-                f"Copy .env.example there as {resolved_env_path.name} and edit it; "
-                f"the repo-root .env is not mounted into the container."
-            ) from exc
         raise ValueError(
             f"{exc}. Create {resolved_env_path} from .env.example "
             f"(for example: cp .env.example .env) and set ClickHouse connection values."
