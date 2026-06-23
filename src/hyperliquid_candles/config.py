@@ -17,6 +17,23 @@ from dotenv import dotenv_values
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def data_dir() -> Path:
+    """Return the directory holding `.env`, `config.toml`, and `logs/`.
+
+    Defaults to the project root, which is what local ``uv run`` commands use.
+    Set the ``HL_DATA_DIR`` environment variable to relocate every runtime file
+    to one directory. The Docker service sets ``HL_DATA_DIR=/data`` and bind
+    mounts ``~/.containers/hyperliquid-candles`` there, so the whole service is
+    configured from a single host folder with one bind.
+
+    This is resolved from the process environment rather than from ``.env`` on
+    purpose: the loader needs to know where ``.env`` lives before it can read it,
+    so the location itself cannot come from inside that file.
+    """
+    override = os.environ.get("HL_DATA_DIR")
+    return Path(override) if override else PROJECT_ROOT
+
+
 @dataclass(frozen=True)
 class ClickHouseSettings:
     """Connection settings for an existing ClickHouse HTTP endpoint.
@@ -147,8 +164,9 @@ def load_settings(
     env_path: Path | None = None,
 ) -> Settings:
     """Load settings from project files and the current process environment."""
-    resolved_config_path = config_path or PROJECT_ROOT / "config.toml"
-    resolved_env_path = env_path or PROJECT_ROOT / ".env"
+    base_dir = data_dir()
+    resolved_config_path = config_path or base_dir / "config.toml"
+    resolved_env_path = env_path or base_dir / ".env"
 
     # Precedence: the `.env` file is the authoritative source for ClickHouse
     # connection values; the process environment only fills keys the file omits.

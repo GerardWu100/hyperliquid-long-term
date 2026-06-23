@@ -3,14 +3,14 @@ services:
     build: .
     container_name: hyperliquid-candles
     restart: unless-stopped
-    # All host files for this service live together under
-    # ~/.containers/hyperliquid-candles/ on the host machine: secrets (.env),
-    # tunables (config.toml), and the writable log directory. .env and
-    # config.toml are mounted read-only because the service never writes them.
+    # One bind, one host folder. Everything this service reads or writes
+    # (.env, config.toml, logs/) lives under ~/.containers/hyperliquid-candles
+    # and is mounted as /data. HL_DATA_DIR tells the app to read all runtime
+    # files from there instead of the repo root.
+    environment:
+      - HL_DATA_DIR=/data
     volumes:
-      - $HOME/.containers/hyperliquid-candles/.env:/app/.env:ro
-      - $HOME/.containers/hyperliquid-candles/config.toml:/app/config.toml:ro
-      - $HOME/.containers/hyperliquid-candles/logs:/app/logs
+      - $HOME/.containers/hyperliquid-candles:/data
     # ClickHouse runs on the shared external Docker network "single". This
     # service joins that network and reaches ClickHouse by its service/container
     # name over the internal HTTP port. Set in .env:

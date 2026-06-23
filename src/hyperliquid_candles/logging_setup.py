@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hyperliquid_candles.config import PROJECT_ROOT
+from hyperliquid_candles.config import data_dir
 
 
 def setup_logging(log_level: str, logs_dir: Path | None = None) -> Path:
@@ -24,7 +24,7 @@ def setup_logging(log_level: str, logs_dir: Path | None = None) -> Path:
     Path
         Path to the main log file for this process.
     """
-    resolved_logs_dir = logs_dir or PROJECT_ROOT / "logs"
+    resolved_logs_dir = logs_dir or data_dir() / "logs"
     resolved_logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = _next_log_path(resolved_logs_dir)
     error_log_path = log_path.with_name(f"{log_path.stem}_errors.log")
