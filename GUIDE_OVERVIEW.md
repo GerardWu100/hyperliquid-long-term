@@ -53,8 +53,9 @@ window calculation -> Hyperliquid REST -> parsed candles -> chunked insert
 
 The raw table uses `ReplacingMergeTree(inserted_at)` with `(symbol, open_time)`
 as the sorting key. This means re-fetching the same candle is safe: duplicate raw
-keys can exist briefly before ClickHouse merges, but the `candles_1m_clean` view
-uses `argMax` so research queries can read a duplicate-safe series.
+keys can exist briefly before ClickHouse merges. Downstream research code should
+deduplicate at extract time with `argMax(..., inserted_at)`, `FINAL`, or an
+equivalent collapse on `(symbol, open_time)`.
 
 ## Important Assumptions
 

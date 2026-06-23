@@ -19,11 +19,11 @@ class QueryExecutor(Protocol):
 
 
 def create_schema(client: QueryExecutor, database: str) -> None:
-    """Create database, tables, and clean read view if they are missing.
+    """Create database and tables if they are missing.
 
     Database-scoped ClickHouse users often lack ``CREATE DATABASE`` even when the
     target database already exists. In that case we skip database creation and
-    continue with table/view DDL, which only needs grants on ``{database}.*``.
+    continue with table DDL, which only needs grants on ``{database}.*``.
     """
     _ensure_database(client=client, database=database)
     for ddl in schema_statements(database):
@@ -57,12 +57,11 @@ def _is_create_database_access_denied(exc: Exception) -> bool:
 
 
 def schema_statements(database: str) -> list[str]:
-    """Return table/view DDL statements in dependency order."""
+    """Return table DDL statements in dependency order."""
     return [
         _candles_ddl(database),
         _ingestion_runs_ddl(database),
         _ingestion_symbol_status_ddl(database),
-        _clean_view_ddl(database),
     ]
 
 
@@ -131,23 +130,4 @@ CREATE TABLE IF NOT EXISTS {database}.ingestion_symbol_status
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(recorded_at)
 ORDER BY (run_id, symbol)
-"""
-
-
-def _clean_view_ddl(database: str) -> str:
-    """Return DDL for the duplicate-safe research read view."""
-    return f"""
-CREATE VIEW IF NOT EXISTS {database}.candles_1m_clean AS
-SELECT
-    symbol,
-    open_time,
-    argMax(open, inserted_at) AS open,
-    argMax(high, inserted_at) AS high,
-    argMax(low, inserted_at) AS low,
-    argMax(close, inserted_at) AS close,
-    argMax(volume, inserted_at) AS volume,
-    argMax(trades, inserted_at) AS trades,
-    max(close_time) AS close_time
-FROM {database}.candles_1m
-GROUP BY symbol, open_time
 """

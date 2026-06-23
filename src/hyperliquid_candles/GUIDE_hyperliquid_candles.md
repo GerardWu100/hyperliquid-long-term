@@ -23,8 +23,8 @@ REST          storage
 The important data invariant is idempotency. For each symbol and 1-minute open
 time, the table may temporarily contain multiple raw rows because the service
 re-fetches overlap windows. ClickHouse eventually collapses those rows by
-`inserted_at`, and the clean read view collapses them immediately for research
-queries.
+`inserted_at`. Research consumers deduplicate at read time when they need one
+row per minute immediately.
 
 Internal code uses plain dataclasses and protocol-style interfaces where tests
 need fakes. There is no local state file, no local database, and no watermark
@@ -58,7 +58,7 @@ cache.
   `recoverable_gaps_query` bounded to the REST horizon for cycle repair) plus
   `parse_gap_rows`/`CandleGap`.
 - `storage/clickhouse_client.py`: readiness-aware ClickHouse connection.
-- `storage/schema.py`: database, tables, and clean view DDL.
+- `storage/schema.py`: database and table DDL.
 - `storage/writer.py`: columnar candle inserts, chunked by `batch_insert_max_rows`
   so a single insert never buffers an unbounded number of rows.
 - `storage/watermarks.py`: `max(open_time)` query plus the shared

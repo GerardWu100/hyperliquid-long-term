@@ -704,21 +704,8 @@ table with its own engine/partitioning rather than widening `candles_1m`.
     GROUP BY symbol, open_time
     ORDER BY open_time;
     ```
-  We will ship a canonical **read view** wrapping this so research queries cannot
-  accidentally double-count:
-    ```sql
-    CREATE VIEW IF NOT EXISTS hyperliquid.candles_1m_clean AS
-    SELECT symbol, open_time,
-           argMax(open,inserted_at)  AS open,
-           argMax(high,inserted_at)  AS high,
-           argMax(low,inserted_at)   AS low,
-           argMax(close,inserted_at) AS close,
-           argMax(volume,inserted_at) AS volume,
-           argMax(trades,inserted_at) AS trades,
-           max(close_time)           AS close_time
-    FROM hyperliquid.candles_1m
-    GROUP BY symbol, open_time;
-    ```
+  Downstream research code should apply that collapse (or `FINAL`) when reading
+  `candles_1m`; this repository does not ship a ClickHouse view for it.
 - **Duplicate-key validation query** (should normally return zero rows once
   merges settle; transient nonzero is acceptable):
     ```sql
@@ -886,7 +873,7 @@ hyperliquid-candles/
 │       ├── storage/
 │       │   ├── __init__.py
 │       │   ├── clickhouse_client.py  # connect from .env, readiness wait+backoff, SELECT 1, version
-│       │   ├── schema.py         # DDL for candles_1m, ingestion_runs, ingestion_symbol_status, clean view (IF NOT EXISTS)
+│       │   ├── schema.py         # DDL for candles_1m, ingestion_runs, ingestion_symbol_status (IF NOT EXISTS)
 │       │   ├── writer.py         # batched columnar insert; insert-failure -> raise (no false success)
 │       │   ├── runs.py           # write ingestion_runs + ingestion_symbol_status rows
 │       │   └── watermarks.py     # max(open_time) per symbol
@@ -942,7 +929,7 @@ hatch.
 | ~200 per-symbol requests/cycle vs 1200 weight/min | Med | Med | Token-bucket limiter, ≤900 weight/min, cycle spread over minutes; 15-min/hourly cadence |
 | Symbol count grows / new listings mid-run | Med | Low | Re-fetch `meta` each cycle; new symbols seeded by initial backfill |
 | Delisted symbols stop returning data | Med | Low | Treat empty responses as no-op; optionally skip flagged delisted from `meta` |
-| Transient duplicates before merges run | Certain | Low | Always read via `candles_1m_clean` view / `argMax` / `FINAL` |
+| Transient duplicates before merges run | Certain | Low | Deduplicate at read time via `argMax` / `FINAL` in downstream extracts |
 | `Float64` vs exact `Decimal` for prices | Low | Low | Float64 is standard for research and compresses well; revisit with `Decimal64` only if exact tick math is later required |
 | ClickHouse user lacks `CREATE`/`system` rights | Low | High | Validate on startup; fail fast with a clear message |
 | Clock skew on VPS misjudges "last closed minute" | Low | Low | Use overlap window; optionally trust server-returned `T` |
@@ -972,7 +959,7 @@ The MVP = **Phases 1–4**:
    (retry-with-backoff on dependency-not-ready; fail fast on permission/schema)
    and explicit Docker networking (§4.1).
 2. Idempotent creation of `candles_1m` (ReplacingMergeTree) + `ingestion_runs`
-   + `ingestion_symbol_status` + `candles_1m_clean` read view.
+   + `ingestion_symbol_status`.
 3. Symbol discovery from `meta` (all active perps; optional allow-list).
 4. Rate-limited, retrying REST client for `candleSnapshot` 1m.
 5. Restart-safe incremental cycle: per-symbol watermark → overlap window →

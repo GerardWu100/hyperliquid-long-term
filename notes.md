@@ -61,14 +61,14 @@ The raw `candles_1m` table uses ClickHouse `ReplacingMergeTree(inserted_at)` wit
 
 Important nuance: this physical deduplication is eventual, not immediate. Until ClickHouse background merges run, duplicate raw rows can still exist in `candles_1m`.
 
-For research queries, use `candles_1m_clean`. That view groups by `(symbol, open_time)` and uses `argMax(..., inserted_at)` so it returns the latest version of each candle immediately, even before ClickHouse has physically merged duplicate raw rows.
+For research queries, deduplicate at extract time: group by `(symbol, open_time)` and use `argMax(..., inserted_at)` (or `FINAL`) so each minute resolves to the latest inserted row, even before ClickHouse has physically merged duplicate raw rows.
 
 Operational concern: overlap refetching is correct, but duplicate raw rows and many small ClickHouse parts should be monitored. If duplicate counts or active parts grow persistently, consider manual ClickHouse maintenance such as `OPTIMIZE TABLE hyperliquid.candles_1m FINAL`. Do not run that automatically every cycle without measuring cost, because forced final optimization can be expensive.
 
 Current recommendation:
 
 - Keep overlap refetching enabled.
-- Read research data from `candles_1m_clean`.
+- Deduplicate `candles_1m` at extract time when building research datasets.
 - Monitor duplicate raw keys and active parts in the quality report.
 - Only add manual maintenance if duplicate or part buildup becomes a real operational problem.
 

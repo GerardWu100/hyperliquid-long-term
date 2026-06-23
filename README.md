@@ -17,7 +17,6 @@ back up ClickHouse.
 - `hyperliquid-candles-quality`: data quality report for active-symbol freshness, gaps,
   duplicates, parts, and recent run status.
 - `candles_1m`: raw idempotent ClickHouse candle table.
-- `candles_1m_clean`: duplicate-safe research view using `argMax`.
 - `ingestion_runs` and `ingestion_symbol_status`: cycle metadata tables.
 
 ## Setup
