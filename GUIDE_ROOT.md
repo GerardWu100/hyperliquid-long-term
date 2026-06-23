@@ -33,6 +33,7 @@ logging for their single cycle.
 - `docker-compose.yml`: runs the service with restart policy and external
   ClickHouse networking notes.
 - `main.py`: compatibility wrapper for the long-running scheduler.
+- `notes.md`: short project notes for operational behavior and concerns.
 - `src/hyperliquid_candles/`: importable service package.
 - `scripts/run_once.py`: one-cycle wrapper for cron or `systemd`.
 - `scripts/run_quality_report.py`: quality-report wrapper.
