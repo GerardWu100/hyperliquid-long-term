@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Protocol
 from datetime import UTC, datetime
+from typing import Protocol
 
 from hyperliquid_candles.hyperliquid.candles import Candle
 

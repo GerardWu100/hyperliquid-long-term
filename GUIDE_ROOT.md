@@ -14,12 +14,14 @@ operator scripts live under `scripts/`. The detailed project contract is
 ```text
 Hyperliquid REST -> hyperliquid-candles service -> ClickHouse tables/views
                          |
-                         +-> logs/YYYY-MM-DD_NNN.log
+                         +-> process log: logs/YYYY-MM-DD_NNN.log
 ```
 
 `config.toml` stores non-secret tunables. `.env` stores ClickHouse connection
 values and is intentionally not committed. Docker runs only the ingestion
-service; ClickHouse is assumed to already exist.
+service; ClickHouse is assumed to already exist. The long-running scheduler
+configures logging once when the process starts; one-shot commands configure
+logging for their single cycle.
 
 # Part 2: Code reference
 
@@ -41,3 +43,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 # Part 3: Short journal
 
 - 2026-06-21: Implemented the plan as a restart-safe REST-to-ClickHouse service with ClickHouse rows as the only ingestion state.
+- 2026-06-22: Scheduler logging now initializes once per process instead of creating a new log file every ingestion cycle.

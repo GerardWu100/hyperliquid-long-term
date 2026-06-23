@@ -34,7 +34,8 @@ cache.
 
 - `app.py`: top-level ingestion cycle. It loads symbols, reads watermarks,
   computes initial/incremental work, inserts candle rows, and writes run
-  metadata.
+  metadata. Standalone runs configure logging inside `run_once`; scheduler
+  mode configures logging once in `main` and disables per-cycle logging setup.
 - `config.py`: turns `.env` plus `config.toml` into immutable settings objects.
 - `logging_setup.py`: creates log files and console logging.
 - `scheduler.py`: repeats a callback with configured cadence and shutdown
@@ -64,3 +65,4 @@ pure ingestion logic.
 
 - 2026-06-21: Kept ClickHouse as the only source of progress so crash recovery and reboot recovery use the same path.
 - 2026-06-21: Scoped freshness monitoring to currently active symbols while keeping historical candle rows intact.
+- 2026-06-22: Scheduler mode keeps one process log for repeated cycles; one-shot mode still creates a log for its single run.

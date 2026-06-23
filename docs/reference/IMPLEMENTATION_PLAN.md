@@ -1,7 +1,8 @@
 # Hyperliquid 1-Minute Perpetual Candle Ingestion — Implementation Plan
 
-> Status: **PLAN ONLY**. No production code is written yet. This document is the
-> contract the next prompt can use to ask for "implement Phase 1".
+> Status: **ALREADY_IMPLEMENTED**. The service described here has been
+> implemented in the repository. Treat this document as implementation context
+> and historical design rationale, not as a pending plan.
 > Target environment: a single retail VPS, ClickHouse already running and
 > external to this project.
 

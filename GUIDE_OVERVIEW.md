@@ -60,8 +60,8 @@ objects when inserting into ClickHouse `DateTime64(3, 'UTC')` columns.
 
 ## Runtime Modes
 
-`hyperliquid-candles` runs the scheduler. It performs an immediate catch-up cycle on
-startup, then sleeps for `poll_interval_sec` plus jitter.
+`hyperliquid-candles` runs the scheduler. It configures logging once, performs an
+immediate catch-up cycle on startup, then sleeps for `poll_interval_sec` plus jitter.
 
 `hyperliquid-candles-run-once` runs exactly one cycle. This is useful for cron, `systemd` timers,
 manual checks, and debugging.

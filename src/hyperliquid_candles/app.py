@@ -52,15 +52,21 @@ class CycleResult:
     status: str
 
 
-def run_once(settings: Settings | None = None) -> CycleResult:
+def run_once(
+    settings: Settings | None = None,
+    configure_logging: bool = True,
+) -> CycleResult:
     """Run one catch-up ingestion cycle.
 
     This function is the entrypoint for `hyperliquid-candles-run-once`, cron, systemd timers, and
-    the first catch-up cycle inside the long-running scheduler.
+    each catch-up cycle inside the long-running scheduler. Standalone callers keep
+    the default logging setup behavior. The scheduler disables per-cycle logging
+    setup because it configures process logging once before entering the loop.
     """
     resolved_settings = settings or load_settings()
-    log_path = setup_logging(resolved_settings.ingestion.log_level)
-    LOGGER.info("Logging to %s", log_path)
+    if configure_logging:
+        log_path = setup_logging(resolved_settings.ingestion.log_level)
+        LOGGER.info("Logging to %s", log_path)
 
     validated_clickhouse = wait_for_clickhouse(
         clickhouse_settings=resolved_settings.clickhouse,
@@ -325,5 +331,9 @@ def _failed_symbol_status(
 def main() -> None:
     """Run the long-lived ingestion scheduler."""
     settings = load_settings()
-    setup_logging(settings.ingestion.log_level)
-    run_scheduler(settings=settings, cycle_callback=lambda: run_once(settings))
+    log_path = setup_logging(settings.ingestion.log_level)
+    LOGGER.info("Logging to %s", log_path)
+    run_scheduler(
+        settings=settings,
+        cycle_callback=lambda: run_once(settings, configure_logging=False),
+    )
