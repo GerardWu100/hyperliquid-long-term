@@ -26,6 +26,9 @@ logging for their single cycle.
 # Part 2: Code reference
 
 - `README.md`: user-facing setup, run commands, and scope.
+- `COMPRESSION_BENCHMARK.md`: measured ClickHouse codec choices for 1-minute
+  market data, including the raw candle table's price, volume, timestamp, and
+  trade-count compression strategy.
 - `pyproject.toml`: package dependencies and console scripts.
 - `config.toml`: commented ingestion, readiness, rate-limit, and alert settings.
 - `.env.example`: ClickHouse environment variable template.
@@ -45,3 +48,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 
 - 2026-06-21: Implemented the plan as a restart-safe REST-to-ClickHouse service with ClickHouse rows as the only ingestion state.
 - 2026-06-22: Scheduler logging now initializes once per process instead of creating a new log file every ingestion cycle.
+- 2026-06-24: Updated the raw candle DDL to follow the compression benchmark: Delta plus ZSTD(12) for prices, plain ZSTD(12) for lossless fractional volume, DoubleDelta for timestamps, and T64 for trades.

@@ -58,7 +58,12 @@ cache.
   `recoverable_gaps_query` bounded to the REST horizon for cycle repair) plus
   `parse_gap_rows`/`CandleGap`.
 - `storage/clickhouse_client.py`: readiness-aware ClickHouse connection.
-- `storage/schema.py`: database and table DDL.
+- `storage/schema.py`: database and table DDL. The raw candle DDL uses
+  benchmarked lossless ClickHouse codecs: `DoubleDelta + ZSTD(12)` for
+  timestamps, `Delta + ZSTD(12)` for OHLC prices, plain `ZSTD(12)` for
+  fractional volume, and `T64 + ZSTD(12)` for trade counts. It also emits
+  matching `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)` statements so
+  existing tables update their codec metadata for future parts.
 - `storage/writer.py`: columnar candle inserts, chunked by `batch_insert_max_rows`
   so a single insert never buffers an unbounded number of rows.
 - `storage/watermarks.py`: `max(open_time)` query plus the shared
@@ -79,3 +84,4 @@ pure ingestion logic.
 - 2026-06-22: Unified all fetching on a backward-paginating `fetch_candle_window` after probing the live API: `candleSnapshot` is newest-anchored with a ~5186-candle horizon tied to now, so forward-by-start pagination could not reach older data. Incremental no longer issues a single unchecked request.
 - 2026-06-22: Inserts now run per symbol in `batch_insert_max_rows` chunks (previously one unbounded all-symbols insert), bounding memory on full-universe cold starts and isolating per-symbol failures.
 - 2026-06-22: Added a gap-backfill phase. Verified against the live API that Hyperliquid emits a candle every minute (continuous even for illiquid coins), so internal gaps are real ingestion misses and safe to refetch; repair is bounded to the REST horizon.
+- 2026-06-24: Changed raw candle compression away from Gorilla after the benchmark showed `Delta` is better for OHLC prices and plain `ZSTD` is better for lossless fractional volume.

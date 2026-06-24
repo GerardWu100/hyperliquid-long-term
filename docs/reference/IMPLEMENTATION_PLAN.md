@@ -310,15 +310,15 @@ strings; convert to numeric on parse):
 CREATE TABLE IF NOT EXISTS hyperliquid.candles_1m
 (
     symbol      LowCardinality(String),
-    open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(3)),
-    close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(3)),
-    open        Float64               CODEC(Gorilla, ZSTD(3)),
-    high        Float64               CODEC(Gorilla, ZSTD(3)),
-    low         Float64               CODEC(Gorilla, ZSTD(3)),
-    close       Float64               CODEC(Gorilla, ZSTD(3)),
-    volume      Float64               CODEC(Gorilla, ZSTD(3)),
-    trades      UInt32                CODEC(T64, ZSTD(3)),
-    inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(3))
+    open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    open        Float64               CODEC(Delta, ZSTD(12)),
+    high        Float64               CODEC(Delta, ZSTD(12)),
+    low         Float64               CODEC(Delta, ZSTD(12)),
+    close       Float64               CODEC(Delta, ZSTD(12)),
+    volume      Float64               CODEC(ZSTD(12)),
+    trades      UInt32                CODEC(T64, ZSTD(12)),
+    inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))
 )
 ENGINE = ReplacingMergeTree(inserted_at)
 PARTITION BY toYYYYMM(open_time)
@@ -345,9 +345,13 @@ SETTINGS index_granularity = 8192;
 - **Codecs**:
   - `DoubleDelta + ZSTD` on the timestamps: minute series are an arithmetic
     progression (+60000 ms), which `DoubleDelta` reduces to near-zero residuals.
-  - `Gorilla + ZSTD` on prices/volume: Gorilla XOR-encodes successive floats and
-    excels on slowly varying numeric series (Facsimile of the Facebook Gorilla
-    TSDB scheme). Adjacent 1m OHLCV values change little, so this is ideal.
+  - `Delta + ZSTD(12)` on prices: adjacent 1-minute prices are usually close, so
+    first differences contain many repeated high-order bytes that ZSTD compresses
+    well. The compression benchmark found this beat `Gorilla` and `FPC` for
+    crypto OHLC prices.
+  - `ZSTD(12)` only on `volume`: Hyperliquid volume is fractional, noisy, and
+    non-monotonic. The benchmark found both `Delta` and `Gorilla` made lossless
+    volume larger, so raw `Float64` values go directly to ZSTD.
   - `T64 + ZSTD` on `trades` (small integers): bit-packs the range.
 - **Deduplication strategy**: physical dedup via ReplacingMergeTree at merge;
   logical dedup at read time via `FINAL` or `argMax` (see §8) so queries are
@@ -357,6 +361,11 @@ SETTINGS index_granularity = 8192;
   of each symbol's range), and gap scans via window functions.
 - **Compression reasoning**: time-ordered inserts + symbol clustering + the codec
   stack typically yield very high compression on OHLCV (often 5–15x); see §7.
+  The schema bootstrap also emits `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)`
+  statements so existing tables get the new codec metadata. Those metadata
+  changes affect future parts immediately; existing parts are physically
+  recompressed when ClickHouse later rewrites them during merges or an explicit
+  operator-run materialization.
 
 ### 5.3 Table: `ingestion_runs` (recovery / monitoring metadata)
 
@@ -641,8 +650,8 @@ the historical S3 archive — out of scope; see §11).
 No — *if inserts are batched*. Compression quality depends on how well data
 sorts within a part and on codec fit, not on whether ingestion is periodic. We
 insert in time order into an `ORDER BY (symbol, open_time)` table, so each part
-is internally well-sorted and the `DoubleDelta`/`Gorilla` codecs work near their
-best case.
+is internally well-sorted and the `DoubleDelta` timestamp codec and `Delta`
+price codec work near their best case.
 
 **Does ClickHouse rewrite old data when new data is inserted?**
 No. ClickHouse is append-structured. Every `INSERT` creates a **new immutable
