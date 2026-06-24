@@ -87,7 +87,8 @@ There is no separate watermark table because that would create a second source
 of truth. ClickHouse rows are the source of truth, and failures between fetch and
 insert are recovered by the next cycle re-querying actual stored rows.
 
-The raw candle schema favors lossless compression over lossy type changes. Price
-columns use first-difference encoding plus ZSTD(12), volume remains Float64 with
-plain ZSTD(12), timestamps use DoubleDelta plus ZSTD(12), and trade counts use
-T64 plus ZSTD(12). This follows the local benchmark in `COMPRESSION_BENCHMARK.md`.
+For newly created raw candle tables, the schema favors lossless compression over
+lossy type changes. Price columns use first-difference encoding plus ZSTD(12),
+volume remains Float64 with plain ZSTD(12), timestamps use DoubleDelta plus
+ZSTD(12), and trade counts use T64 plus ZSTD(12). This follows the local
+benchmark in `COMPRESSION_BENCHMARK.md`.

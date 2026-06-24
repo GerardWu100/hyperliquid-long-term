@@ -57,33 +57,11 @@ def _is_create_database_access_denied(exc: Exception) -> bool:
 
 
 def schema_statements(database: str) -> list[str]:
-    """Return table DDL and metadata-upgrade statements in dependency order."""
+    """Return table DDL statements in dependency order."""
     return [
         _candles_ddl(database),
-        *_candles_codec_alter_statements(database),
         _ingestion_runs_ddl(database),
         _ingestion_symbol_status_ddl(database),
-    ]
-
-
-def _candles_codec_alter_statements(database: str) -> list[str]:
-    """Return idempotent codec upgrades for existing raw candle tables.
-
-    CREATE TABLE IF NOT EXISTS applies the desired codecs only when the table
-    is first created. Existing deployments need ALTER TABLE statements so the
-    ClickHouse metadata is updated for future parts and later background merges.
-    """
-    table = f"{database}.candles_1m"
-    return [
-        f"ALTER TABLE {table} MODIFY COLUMN open_time DateTime64(3, 'UTC') CODEC(DoubleDelta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN close_time DateTime64(3, 'UTC') CODEC(DoubleDelta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN open Float64 CODEC(Delta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN high Float64 CODEC(Delta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN low Float64 CODEC(Delta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN close Float64 CODEC(Delta, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN volume Float64 CODEC(ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN trades UInt32 CODEC(T64, ZSTD(12))",
-        f"ALTER TABLE {table} MODIFY COLUMN inserted_at DateTime64(3, 'UTC') DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))",
     ]
 
 

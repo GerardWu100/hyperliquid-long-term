@@ -361,11 +361,8 @@ SETTINGS index_granularity = 8192;
   of each symbol's range), and gap scans via window functions.
 - **Compression reasoning**: time-ordered inserts + symbol clustering + the codec
   stack typically yield very high compression on OHLCV (often 5–15x); see §7.
-  The schema bootstrap also emits `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)`
-  statements so existing tables get the new codec metadata. Those metadata
-  changes affect future parts immediately; existing parts are physically
-  recompressed when ClickHouse later rewrites them during merges or an explicit
-  operator-run materialization.
+  `CREATE TABLE IF NOT EXISTS` applies these codecs only to newly created
+  tables. Existing tables are intentionally not altered by the service.
 
 ### 5.3 Table: `ingestion_runs` (recovery / monitoring metadata)
 

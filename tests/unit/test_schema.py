@@ -83,20 +83,9 @@ def test_candles_schema_uses_benchmarked_lossless_codecs() -> None:
     assert "Gorilla" not in candles_ddl
 
 
-def test_schema_statements_update_existing_candle_codecs() -> None:
-    """Existing candle tables should receive codec metadata upgrades."""
+def test_schema_statements_do_not_modify_existing_tables() -> None:
+    """Schema bootstrap should not alter existing ClickHouse table metadata."""
     statements = schema_statements("hyperliquid")
 
-    assert (
-        "ALTER TABLE hyperliquid.candles_1m "
-        "MODIFY COLUMN open Float64 CODEC(Delta, ZSTD(12))"
-    ) in statements
-    assert (
-        "ALTER TABLE hyperliquid.candles_1m "
-        "MODIFY COLUMN volume Float64 CODEC(ZSTD(12))"
-    ) in statements
-    assert (
-        "ALTER TABLE hyperliquid.candles_1m "
-        "MODIFY COLUMN inserted_at DateTime64(3, 'UTC') "
-        "DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))"
-    ) in statements
+    assert len(statements) == 3
+    assert all("ALTER TABLE" not in statement for statement in statements)

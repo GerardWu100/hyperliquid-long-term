@@ -61,9 +61,9 @@ cache.
 - `storage/schema.py`: database and table DDL. The raw candle DDL uses
   benchmarked lossless ClickHouse codecs: `DoubleDelta + ZSTD(12)` for
   timestamps, `Delta + ZSTD(12)` for OHLC prices, plain `ZSTD(12)` for
-  fractional volume, and `T64 + ZSTD(12)` for trade counts. It also emits
-  matching `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)` statements so
-  existing tables update their codec metadata for future parts.
+  fractional volume, and `T64 + ZSTD(12)` for trade counts. The service uses
+  `CREATE TABLE IF NOT EXISTS` and intentionally does not alter existing table
+  metadata.
 - `storage/writer.py`: columnar candle inserts, chunked by `batch_insert_max_rows`
   so a single insert never buffers an unbounded number of rows.
 - `storage/watermarks.py`: `max(open_time)` query plus the shared
