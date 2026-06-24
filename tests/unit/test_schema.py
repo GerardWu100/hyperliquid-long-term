@@ -68,8 +68,12 @@ def test_candles_schema_uses_benchmarked_lossless_codecs() -> None:
     """
     candles_ddl = schema_statements("hyperliquid")[0]
 
-    assert "open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12))" in candles_ddl
-    assert "close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12))" in candles_ddl
+    assert (
+        "open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12))" in candles_ddl
+    )
+    assert (
+        "close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12))" in candles_ddl
+    )
     assert "open        Float64               CODEC(Delta, ZSTD(12))" in candles_ddl
     assert "high        Float64               CODEC(Delta, ZSTD(12))" in candles_ddl
     assert "low         Float64               CODEC(Delta, ZSTD(12))" in candles_ddl
