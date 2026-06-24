@@ -72,3 +72,56 @@ Current recommendation:
 - Monitor duplicate raw keys and active parts in the quality report.
 - Only add manual maintenance if duplicate or part buildup becomes a real operational problem.
 
+## Hyperliquid candle field names and precision quirks
+
+Hyperliquid's `candleSnapshot` endpoint uses short field names. The project
+stores the same values with descriptive ClickHouse column names:
+
+| Hyperliquid field | ClickHouse column | Meaning |
+|---|---|---|
+| `s` | `symbol` | Perpetual market symbol, such as `BTC` or `0G`. |
+| `t` | `open_time` | Candle open time as Unix epoch milliseconds in UTC. |
+| `T` | `close_time` | Candle close time as Unix epoch milliseconds in UTC. |
+| `o` | `open` | First trade price in the candle, or Hyperliquid's carried price when there are no trades. |
+| `h` | `high` | Highest price in the candle, or the carried price when there are no trades. |
+| `l` | `low` | Lowest price in the candle, or the carried price when there are no trades. |
+| `c` | `close` | Last trade price in the candle, or the carried price when there are no trades. |
+| `v` | `volume` | Base-asset volume traded during the candle. This is not dollar notional. |
+| `n` | `trades` | Number of trades in the candle. |
+
+The collector does not deliberately round, rescale, or otherwise transform the
+market values. Hyperliquid sends `o`, `h`, `l`, `c`, and `v` as decimal
+strings; the parser converts them to Python `float`, and ClickHouse stores them
+as `Float64`. Hyperliquid sends `n` as an integer-like count, and ClickHouse
+stores it as `UInt32`. This is the high-fidelity path used by the current
+schema. Do not downcast `volume` to `Float32`, convert it to an integer, or
+round it unless the goal explicitly changes from official-value fidelity to
+lossy storage optimization.
+
+Some official Hyperliquid values look strange but are source behavior, not a
+collector bug:
+
+- BTC prices often look like integers, for example `59587.0`, because
+  Hyperliquid's valid quoted price precision for a large-price asset commonly
+  lands on whole-dollar increments.
+- 0G volumes look like integers because Hyperliquid's `meta` endpoint reports
+  `szDecimals = 0` for `0G`. `szDecimals` is Hyperliquid metadata, not a
+  project setting. It means trade sizes for that market have zero decimal places,
+  so all 0G trade sizes are whole-token quantities and their candle-volume sum is
+  also a whole-token quantity.
+- `szDecimals` controls size precision, not price precision. A market can have
+  integer sizes and decimal prices; `0G` is an example.
+- Hyperliquid emits one-minute candles even when `n = 0` and `v = 0`. In those
+  no-trade minutes, `open = high = low = close` can repeat a carried price. Treat
+  these as valid source candles, but account for `trades = 0` when doing
+  liquidity, return, or volatility research.
+
+For cross-symbol research, raw `volume` is not comparable across coins because
+it is base-asset quantity. A rough dollar or USDC notional estimate is:
+
+```text
+notional_volume = volume * close
+```
+
+For example, `92.68076` BTC of volume at a `59494` close is roughly
+`92.68076 * 59494 = 5.51 million` USDC of notional volume.
