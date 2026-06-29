@@ -32,6 +32,8 @@ logging for their single cycle.
 - `pyproject.toml`: package dependencies and console scripts.
 - `config.toml`: commented ingestion, readiness, rate-limit, and alert settings.
 - `.env.example`: ClickHouse environment variable template.
+- `clickhouse-user-example.xml`: optional ClickHouse `users.d` example for the
+  scoped ingestion user; replace the placeholder password before mounting it.
 - `Dockerfile`: builds the service image with `uv`.
 - `docker-compose.yml`: runs the service with restart policy and external
   ClickHouse networking notes.
@@ -49,3 +51,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 - 2026-06-21: Implemented the plan as a restart-safe REST-to-ClickHouse service with ClickHouse rows as the only ingestion state.
 - 2026-06-22: Scheduler logging now initializes once per process instead of creating a new log file every ingestion cycle.
 - 2026-06-24: Updated the raw candle DDL to follow the compression benchmark: Delta plus ZSTD(12) for prices, plain ZSTD(12) for lossless fractional volume, DoubleDelta for timestamps, and T64 for trades.
+- 2026-06-29: Added a password-free ClickHouse user XML example and README bootstrap one-liner for creating the database plus scoped writable user.

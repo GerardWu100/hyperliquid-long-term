@@ -1,0 +1,14 @@
+<clickhouse>
+    <users>
+        <hyperliquid_user>
+            <password>replace-with-a-strong-password</password>
+            <profile>default</profile>
+            <quota>default</quota>
+            <default_database>hyperliquid</default_database>
+
+            <grants>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, ALTER TABLE ON hyperliquid.*</query>
+            </grants>
+        </hyperliquid_user>
+    </users>
+</clickhouse>
