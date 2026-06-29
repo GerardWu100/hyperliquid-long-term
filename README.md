@@ -34,7 +34,7 @@ ClickHouse admin one-liner to create the database:
 
 ```bash
 docker exec -it clickhouse clickhouse-client \
-  -u hyperliquid_user \
+  -u writeable_username \
   --password 'REAL_PASSWORD_HERE' \
   --query "CREATE DATABASE IF NOT EXISTS hyperliquid"
 ```
