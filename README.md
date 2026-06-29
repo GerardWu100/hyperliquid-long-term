@@ -30,8 +30,14 @@ Edit `.env` with the reachable ClickHouse HTTP host, port, user, password, TLS
 flag, and database. Edit `config.toml` for cadence, symbol allowlists, rate
 budget, and alert thresholds.
 
-ClickHouse admin one-liner to create the database and writable app user:
-`docker exec -it clickhouse clickhouse-client --multiquery --query "CREATE DATABASE IF NOT EXISTS hyperliquid; CREATE USER IF NOT EXISTS hyperliquid_user IDENTIFIED BY 'replace-with-a-strong-password' DEFAULT DATABASE hyperliquid; GRANT SELECT, INSERT, CREATE TABLE, ALTER TABLE ON hyperliquid.* TO hyperliquid_user;"`
+ClickHouse admin one-liner to create the database:
+
+```bash
+docker exec -it clickhouse clickhouse-client \
+  -u hyperliquid_user \
+  --password 'REAL_PASSWORD_HERE' \
+  --query "CREATE DATABASE IF NOT EXISTS hyperliquid"
+```
 
 ## Run
 
