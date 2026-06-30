@@ -1,0 +1,56 @@
+<!--
+  Read-only inspection user for the hyperliquid database.
+
+  Place this on the ClickHouse server as a drop-in, e.g.:
+      /etc/clickhouse-server/users.d/rigid6758.xml
+  ClickHouse watches users.d/ and reloads automatically; no server restart is
+  needed for user/grant/profile changes.
+
+  Defense in depth: this user is restricted in THREE independent ways, so no
+  single mistake exposes the data:
+    1. readonly profile  -> blocks all writes/DDL at the settings level.
+    2. explicit <grants>  -> grants only SELECT/SHOW on the hyperliquid database
+                             (without a <grants> block, an XML user gets ALL
+                             privileges on *.* by default).
+    3. <networks>         -> limits where the user may connect from.
+-->
+<clickhouse>
+    <profiles>
+        <!-- readonly = 2 allows read queries and SET, but rejects INSERT/DDL. -->
+        <readonly>
+            <readonly>2</readonly>
+        </readonly>
+    </profiles>
+
+    <users>
+        <rigid6758>
+            <password>replace-with-a-strong-password</password>
+
+            <!-- Exactly ONE profile. Do not also add <profile>default</profile>. -->
+            <profile>readonly</profile>
+            <quota>default</quota>
+            <default_database>hyperliquid</default_database>
+
+            <!-- A read-only user must not manage access. -->
+            <access_management>0</access_management>
+
+            <!--
+              Restrict the source network. ::/0 means "the entire internet".
+              Replace with your own address or VPN range, for example:
+                  <ip>203.0.113.7</ip>          (a single host)
+                  <ip>10.8.0.0/24</ip>           (a VPN subnet)
+            -->
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <!--
+              Without this block the user implicitly receives ALL privileges on
+              *.* . Grant only what inspection needs, scoped to one database.
+            -->
+            <grants>
+                <query>GRANT SHOW, SELECT ON hyperliquid.*</query>
+            </grants>
+        </rigid6758>
+    </users>
+</clickhouse>
