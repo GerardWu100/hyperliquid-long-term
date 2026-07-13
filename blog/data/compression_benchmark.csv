@@ -1,0 +1,5 @@
+variant,bytes_per_row,source
+Delta + ZSTD(9) OHLC; ZSTD(9) volume; T64 trades,16.14,COMPRESSION_BENCHMARK.md
+Production-style baseline,19.55,COMPRESSION_BENCHMARK.md
+Gorilla + ZSTD(3) floats,27.72,COMPRESSION_BENCHMARK.md
+LZ4 defaults,30.54,COMPRESSION_BENCHMARK.md

@@ -1,0 +1,6 @@
+stage,minutes,source
+warning,60,config.toml
+serious,720,config.toml
+urgent,2880,config.toml
+critical,4320,config.toml
+nominal REST horizon,5000,config.toml
