@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hyperliquid_candles.hyperliquid.candles import INTERVAL_MS
+from hyperliquid_candles.ingestion.windows import earliest_open_ms_for_candle_count
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,14 @@ def build_incremental_work_items(
     last_closed_ms: int,
     overlap_candles: int,
     interval_ms: int = INTERVAL_MS,
-    rest_horizon_min: int = 5000,
+    rest_horizon_candles: int = 5000,
 ) -> list[WorkItem]:
     """Build restart-safe per-symbol fetch windows from ClickHouse watermarks."""
-    horizon_floor_ms = last_closed_ms - rest_horizon_min * interval_ms
+    horizon_floor_ms = earliest_open_ms_for_candle_count(
+        last_open_ms=last_closed_ms,
+        candle_count=rest_horizon_candles,
+        interval_ms=interval_ms,
+    )
     work_items: list[WorkItem] = []
 
     for symbol in symbols:

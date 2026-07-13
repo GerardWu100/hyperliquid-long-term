@@ -42,3 +42,4 @@ Read `hyperliquid_candles/app.py` first when debugging runtime behavior.
 # Part 3: Short journal
 
 - 2026-06-21: Chose explicit package boundaries so REST, ingestion math, and ClickHouse behavior can be tested independently.
+- 2026-07-13: Source parsing now enforces the one-minute timestamp and OHLCV invariants before rows cross the ClickHouse boundary.

@@ -25,13 +25,17 @@
    - Purpose: exclude the still-forming minute.
    - Symbols: $t$ is current Unix time in milliseconds, $\Delta=60{,}000$ ms is one minute, and $t_{\mathrm{closed}}$ is the latest closed candle's open time.
    - Delimiter: display.
-2. Incremental start time:
-   - Purpose: explain the bounded overlap and REST floor.
-   - Symbols: $w_s$ is the stored watermark for symbol $s$, $k$ is the overlap in candles, $H$ is the REST horizon in minutes, and $t_{\mathrm{start},s}$ is the next request start.
+2. Inclusive horizon floor and incremental start time:
+   - Purpose: explain why $H$ candle opens span $H-1$ intervals, then apply the bounded overlap and REST floor.
+   - Symbols: $w_s$ is the stored watermark for symbol $s$, $k$ is the overlap in candles, $H$ is the configured candle-slot count, and $t_{\mathrm{start},s}$ is the next request start.
    - Delimiter: display.
 3. Compression metrics:
    - Purpose: distinguish compression ratio from the decision metric, bytes per row.
    - Symbols: $B_u$ is uncompressed bytes, $B_c$ is compressed bytes, $N$ is rows, $R$ is compression ratio, and $b$ is compressed bytes per row.
+   - Delimiter: display.
+4. Request weight and observed slot coverage:
+   - Purpose: explain pre-request rate-limit reservation and distinguish absent stored slots from proven source failures.
+   - Symbols: $M$ is returned candles, $S$ is requested slots, $W$ is request weight, $U$ is unique stored keys, $E$ is expected minute slots, and $Q=U/E$ is the observed slot ratio.
    - Delimiter: display.
 
 ## Planned code excerpts
@@ -46,8 +50,8 @@
 ## Planned technical graphs
 
 1. Graph type: threshold timeline.
-   - Source: generated from `config.toml` (`60`, `720`, `2880`, `4320`, `5000` minutes).
-   - Expected takeaway: the critical alert fires 680 minutes before the nominal REST floor, leaving only a narrow repair margin.
+   - Source: generated from `config.toml` (`60`, `720`, `2880`, `4320` alert minutes and the 4,999-minute span of 5,000 inclusive slots).
+   - Expected takeaway: the critical alert fires 679 minutes before the configured 5,000-slot floor, leaving a narrow repair margin that is not a source-retention guarantee.
 2. Graph type: horizontal bar comparison.
    - Source: frozen values from the measured crypto benchmark in `COMPRESSION_BENCHMARK.md`.
    - Expected takeaway: the chosen lossless codec mix reduced sample bytes per row from 19.55 to 16.14, while Gorilla and LZ4 were substantially larger; these are benchmark data, not live Hyperliquid table results.

@@ -52,3 +52,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 - 2026-06-22: Scheduler logging now initializes once per process instead of creating a new log file every ingestion cycle.
 - 2026-06-24: Updated the raw candle DDL to follow the compression benchmark: Delta plus ZSTD(12) for prices, plain ZSTD(12) for lossless fractional volume, DoubleDelta for timestamps, and T64 for trades.
 - 2026-06-29: Added a password-free ClickHouse user XML example and README bootstrap one-liner for creating the database plus scoped writable user.
+- 2026-07-13: Corrected the 5,000-candle boundary to span 4,999 intervals, reserved candle response weight before each request, and treated missing minutes as repair candidates rather than proven source candles.

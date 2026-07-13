@@ -37,8 +37,16 @@ class CandleSource(Protocol):
 
 
 def parse_candle(payload: dict[str, Any]) -> Candle:
-    """Convert one Hyperliquid `candleSnapshot` object into a typed candle."""
-    return Candle(
+    """Convert and validate one Hyperliquid 1-minute candle payload.
+
+    The parser rejects interval, timestamp, price-range, and unsigned-value
+    violations before they reach ClickHouse. This turns an upstream schema
+    change into a visible per-symbol failure instead of silent table corruption.
+    """
+    if str(payload["i"]) != INTERVAL_1M:
+        raise ValueError(f"Expected 1m candle interval, received {payload['i']!r}")
+
+    candle = Candle(
         symbol=str(payload["s"]),
         open_time_ms=int(payload["t"]),
         close_time_ms=int(payload["T"]),
@@ -49,6 +57,19 @@ def parse_candle(payload: dict[str, Any]) -> Candle:
         volume=float(payload["v"]),
         trades=int(payload.get("n", 0)),
     )
+    if candle.open_time_ms % INTERVAL_MS != 0:
+        raise ValueError("Candle open time is not aligned to a 1-minute boundary")
+    if candle.close_time_ms != candle.open_time_ms + INTERVAL_MS - 1:
+        raise ValueError("Candle close time does not match a 1-minute interval")
+    if candle.high < max(candle.open, candle.low, candle.close):
+        raise ValueError("Candle high is below another OHLC price")
+    if candle.low > min(candle.open, candle.high, candle.close):
+        raise ValueError("Candle low is above another OHLC price")
+    if candle.volume < 0:
+        raise ValueError("Candle volume must be non-negative")
+    if candle.trades < 0:
+        raise ValueError("Candle trade count must be non-negative")
+    return candle
 
 
 def parse_candles(payloads: Iterable[dict[str, Any]]) -> list[Candle]:

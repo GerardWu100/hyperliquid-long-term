@@ -3,4 +3,4 @@ warning,60,config.toml
 serious,720,config.toml
 urgent,2880,config.toml
 critical,4320,config.toml
-nominal REST horizon,5000,config.toml
+configured window floor,4999,config.toml

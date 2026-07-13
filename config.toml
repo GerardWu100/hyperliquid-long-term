@@ -4,8 +4,8 @@ poll_interval_sec = 1800
 # Number of already-stored candles to re-fetch each cycle for idempotent overlap.
 overlap_candles = 5
 
-# Hyperliquid REST only exposes roughly the most recent 5000 1-minute candles.
-rest_horizon_min = 5000
+# Conservative count of recent 1-minute candle slots requested from REST.
+rest_horizon_candles = 5000
 
 # Hyperliquid request pacing target in request-weight units per minute.
 # Hyperliquid's per-IP REST ceiling is 1200 weight/min; this stays below it.

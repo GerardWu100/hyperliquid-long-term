@@ -16,13 +16,45 @@ def last_closed_open_ms(now_ms: int | None = None) -> int:
     return current_minute_open_ms - INTERVAL_MS
 
 
+def earliest_open_ms_for_candle_count(
+    last_open_ms: int,
+    candle_count: int,
+    interval_ms: int = INTERVAL_MS,
+) -> int:
+    """Return the first open time in an inclusive fixed-size candle window.
+
+    Parameters
+    ----------
+    last_open_ms:
+        Open time of the final candle in Unix epoch milliseconds.
+    candle_count:
+        Number of candle slots in the inclusive window. Must be positive.
+    interval_ms:
+        Width of one candle in milliseconds.
+
+    Returns
+    -------
+    int
+        First candle open time. For ``N`` candles, only ``N - 1`` intervals
+        separate the first and last opens.
+    """
+    if candle_count <= 0:
+        raise ValueError("candle_count must be positive")
+    if interval_ms <= 0:
+        raise ValueError("interval_ms must be positive")
+    return last_open_ms - (candle_count - 1) * interval_ms
+
+
 def compute_initial_start_ms(
     last_closed_ms: int,
-    rest_horizon_min: int,
+    rest_horizon_candles: int,
     requested_start_time_utc: str,
 ) -> tuple[int, int, bool]:
     """Compute requested and REST-horizon-clamped initial backfill starts."""
-    rest_horizon_floor_ms = last_closed_ms - rest_horizon_min * INTERVAL_MS
+    rest_horizon_floor_ms = earliest_open_ms_for_candle_count(
+        last_open_ms=last_closed_ms,
+        candle_count=rest_horizon_candles,
+    )
     if requested_start_time_utc:
         requested_ms = parse_utc_iso_to_ms(requested_start_time_utc)
     else:

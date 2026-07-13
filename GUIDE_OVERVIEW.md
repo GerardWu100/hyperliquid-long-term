@@ -31,9 +31,10 @@ Each cycle starts from ClickHouse, not from local memory. The service queries th
 latest stored candle open time for each symbol, computes the missing range plus a
 small overlap, fetches that range from Hyperliquid, and inserts the rows per
 symbol in bounded chunks. Symbols with no stored rows use initial backfill,
-clamped to the REST horizon. After catch-up, a gap-backfill pass refetches any
-internal missing periods that still fall inside the REST horizon, so the dataset
-heals itself after downtime or partial failures.
+clamped to the recent REST window. After catch-up, a gap-backfill pass refetches
+candidate missing periods inside that window. An absent minute is evidence of a
+storage gap, but the API does not promise that every no-trade minute has a
+source candle, so a candidate can remain after a successful refetch.
 
 All fetching shares one backward-paginating primitive. Hyperliquid's
 `candleSnapshot` is newest-anchored: a window wider than the available horizon
@@ -59,10 +60,11 @@ equivalent collapse on `(symbol, open_time)`.
 
 ## Important Assumptions
 
-Hyperliquid REST exposes only roughly the most recent 5000 one-minute candles,
-which is about 3.47 days. The service therefore cannot recover arbitrary old
-outages from REST. Long-term history is accumulated by keeping the process
-running continuously and alerting before downtime approaches that horizon.
+Hyperliquid documents availability of the most recent 5,000 candles. For a
+continuous one-minute series, 5,000 inclusive candle opens span 4,999 minutes,
+or about 3.47 days. The service cannot recover arbitrary old outages from REST.
+Long-term history is accumulated by keeping the process running continuously
+and alerting before downtime approaches the configured window.
 
 All ingestion timestamps are UTC. Internal ingestion math uses Unix epoch
 milliseconds; the storage layer converts to timezone-aware Python datetime
@@ -92,3 +94,9 @@ lossy type changes. Price columns use first-difference encoding plus ZSTD(12),
 volume remains Float64 with plain ZSTD(12), timestamps use DoubleDelta plus
 ZSTD(12), and trade counts use T64 plus ZSTD(12). This follows the local
 benchmark in `COMPRESSION_BENCHMARK.md`.
+
+The REST limiter reserves the full estimated request weight before each HTTP
+attempt. For candle requests, the estimate is the base 20 weight units plus one
+unit per 60 requested minute slots. Reserving before sending prevents cold-start
+requests from bursting past the local budget and accounting for response weight
+only after the server has processed them.

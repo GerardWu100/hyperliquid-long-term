@@ -8,11 +8,12 @@ Two consumers use this module:
   :func:`parse_gap_rows` to find only the gaps that still fall inside
   Hyperliquid's REST horizon, so it can refetch and repair them.
 
-A "gap" is one or more missing 1-minute candles between two stored candles for
-the same symbol. Hyperliquid emits a candle for every minute (verified against
-the live API even for illiquid coins), so an internal gap always reflects a real
-ingestion miss, never a no-trade minute. That is what makes automated backfill
-safe: it will never chase minutes that simply do not exist.
+A "gap" is one or more absent 1-minute slots between two stored candles for the
+same symbol. Hyperliquid's public API documentation does not promise that a
+candle exists for every no-trade minute. A detected gap is therefore a repair
+candidate, not proof of an ingestion failure. Refetching its boundary window is
+safe because writes are idempotent; a source-level empty minute may remain in
+subsequent reports.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ def recoverable_gaps_query(database: str, horizon_floor_ms: int) -> str:
         Target database name.
     horizon_floor_ms:
         Oldest recoverable ``open_time`` in Unix epoch milliseconds, typically
-        ``last_closed_ms - rest_horizon_min * 60000``.
+        the first open in the configured recent-candle window.
 
     Returns
     -------

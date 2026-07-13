@@ -8,7 +8,7 @@ categories: ["Data Science", "Capital Markets", "Quantitative Research"]
 
 # Construire un historique long terme des bougies Hyperliquid à partir d'une courte fenêtre REST
 
-L'interface de programmation REST (API) d'Hyperliquid ne donne accès qu'à une tranche récente des bougies à une minute. La documentation du projet retient un horizon de travail d'environ 5 000 bougies, soit 3 jours, 11 heures et 20 minutes. Si une panne dépasse cette fenêtre, un collecteur REST ne peut plus reconstituer les données manquantes.
+L'interface de programmation REST (API) d'Hyperliquid ne donne accès qu'à une tranche récente des bougies à une minute. Sa documentation officielle annonce la disponibilité des 5 000 bougies les plus récentes. Ce projet retient donc 5 000 créneaux d'une minute comme fenêtre de requête prudente. Si chaque minute contient une bougie, ces 5 000 ouvertures inclusives couvrent 4 999 minutes, soit environ 3 jours et 11 heures. Une fois l'historique de la source dépassé, REST ne peut plus reconstruire une panne.
 
 Cette contrainte change la nature du problème. Il ne s'agit pas d'un simple téléchargement ponctuel. Le service doit tourner en continu, savoir précisément où s'arrête le stockage pour chaque contrat perpétuel, tolérer les insertions répétées et réparer les trous tant que la source les conserve encore.
 
@@ -26,15 +26,23 @@ t_{\mathrm{closed}}
 \left\lfloor\frac{t}{\Delta}\right\rfloor\Delta-\Delta.
 $$
 
-Pour le symbole $s$, soit $w_s$ la dernière heure d'ouverture stockée, $k$ le nombre de bougies de chevauchement et $H$ l'horizon REST mesuré en bougies d'une minute. La requête incrémentale commence à :
+Soit $H$ le nombre configuré de créneaux. Comme $H$ ouvertures inclusives ne contiennent que $H-1$ intervalles, la première ouverture demandée vaut :
+
+$$
+t_{\mathrm{floor}}
+=
+t_{\mathrm{closed}}-(H-1)\Delta.
+$$
+
+Pour le symbole $s$, soit $w_s$ la dernière heure d'ouverture stockée et $k$ le nombre de bougies de chevauchement. La requête incrémentale commence à :
 
 $$
 t_{\mathrm{start},s}
 =
-\max\left(w_s-k\Delta,\ t_{\mathrm{closed}}-H\Delta\right).
+\max\left(w_s-k\Delta,\ t_{\mathrm{floor}}\right).
 $$
 
-Le premier terme recharge volontairement les observations récentes. Le second empêche le service de gaspiller des requêtes sur une période que REST ne peut plus renvoyer. Dans la configuration versionnée, $k=5$ et $H=5{,}000$.
+Le premier terme recharge volontairement les observations récentes. Le second borne la requête à la fenêtre prudente du projet. Dans la configuration versionnée, $k=5$ et $H=5{,}000$. Une ancienne version soustrayait $H\Delta$ et demandait donc 5 001 créneaux inclusifs. Le code et les tests utilisent maintenant $(H-1)\Delta$.
 
 ## Les lignes ClickHouse servent de watermark
 
@@ -46,14 +54,18 @@ Chaque cycle comporte trois passes :
 
 1. Les nouveaux symboles reçoivent un backfill initial, limité à la fenêtre REST récupérable.
 2. Les symboles existants sont repris depuis leur watermark moins cinq minutes jusqu'à la dernière minute clôturée.
-3. Les trous internes encore situés dans la fenêtre REST sont détectés puis rechargés.
+3. Les créneaux manquants candidats situés dans la fenêtre REST sont détectés puis rechargés.
 
 L'échec d'un symbole n'annule pas les insertions des autres. Les écritures sont aussi découpées selon une limite configurable de lignes. Un démarrage à froid sur l'ensemble de l'univers ne devient donc pas un lot unique et sans borne en mémoire.
 
 Le calcul central de la fenêtre tient en quelques lignes :
 
 ```python
-horizon_floor_ms = last_closed_ms - rest_horizon_min * interval_ms
+horizon_floor_ms = earliest_open_ms_for_candle_count(
+    last_open_ms=last_closed_ms,
+    candle_count=rest_horizon_candles,
+    interval_ms=interval_ms,
+)
 
 for symbol in symbols:
     watermark_ms = watermarks_ms.get(symbol)
@@ -70,9 +82,21 @@ for symbol in symbols:
 
 Aucun curseur n'est cru sur parole au seul motif que le processus précédent a déclaré un succès. La progression est déduite des données durables.
 
+Le contrat de stockage reste volontairement simple :
+
+| Groupe de champs | Type ClickHouse | Invariant avant insertion |
+|---|---|---|
+| `symbol` | `LowCardinality(String)` | Doit correspondre au marché demandé |
+| `open_time`, `close_time` | `DateTime64(3, 'UTC')` | L'ouverture est alignée sur 60 000 millisecondes ; la clôture vaut l'ouverture plus 59 999 millisecondes |
+| open, high, low, close (OHLC) | `Float64` | High n'est inférieur à aucune valeur OHLC ; low n'est supérieur à aucune valeur OHLC |
+| `volume` | `Float64` | Valeur positive ou nulle |
+| `trades` | `UInt32` | Entier positif ou nul |
+
+Les millisecondes Unix ne dépendent pas d'un fuseau horaire. Le writer ne les convertit en objets Python `datetime` horodatés en temps universel coordonné (UTC) qu'à la frontière ClickHouse. Si un driver renvoie un `datetime` sans fuseau, le code l'interprète explicitement en UTC, ce qui évite un décalage silencieux lié au fuseau de la machine.
+
 ## Pourquoi la pagination remonte dans le temps
 
-La difficulté la moins intuitive vient de l'API source. D'après les sondages réels consignés dans le dépôt, `candleSnapshot` est ancré sur les données les plus récentes : lorsqu'une fenêtre demandée est trop large, la réponse conserve les bougies proches de `endTime` et supprime silencieusement l'excédent le plus ancien.
+La difficulté la moins intuitive vient de l'API source. La page officielle de l'endpoint `info` donne une règle générale de pagination vers l'avant pour les réponses bornées dans le temps. Les sondages `candleSnapshot` du dépôt ont montré un autre comportement aux limites pour les fenêtres trop larges : la réponse conservait les bougies proches de `endTime` et supprimait l'excédent le plus ancien. Un nouveau sondage réalisé pendant cet audit a renvoyé 5 198 bougies BTC récentes à une minute pour 6 001 créneaux demandés. C'est une observation du 13 juillet 2026, pas une garantie de l'API.
 
 Une pagination vers l'avant ne peut pas récupérer cet excédent. Répéter une requête large avec la même borne de fin renvoie toujours la tranche récupérable la plus récente. Le fetcher recule donc `endTime` d'un intervalle avant la bougie la plus ancienne de la page reçue :
 
@@ -88,7 +112,19 @@ if next_cursor_end_ms >= cursor_end_ms:
 cursor_end_ms = next_cursor_end_ms
 ```
 
-La vérification de progression du curseur est utile. Si l'API cesse un jour de respecter `endTime`, la boucle s'arrête au lieu de tourner indéfiniment. Le backfill initial, le rattrapage incrémental et la réparation des trous utilisent tous cette même primitive. Leur comportement de pagination ne peut donc pas diverger.
+La vérification de progression du curseur est utile. Si l'API cesse un jour de respecter `endTime`, la boucle s'arrête au lieu de tourner indéfiniment. Le backfill initial, le rattrapage incrémental et la réparation des trous utilisent tous cette même primitive. Leur comportement de pagination ne peut donc pas diverger. Chaque ligne renvoyée doit aussi respecter le symbole et la fenêtre inclusive demandés. Un intervalle, un timestamp, une plage de prix, un volume ou un nombre de transactions invalide fait échouer le symbole avant le stockage.
+
+## Le poids est réservé avant la requête HTTP
+
+Hyperliquid attribue un poids de base de 20 à la plupart des requêtes `info`, puis ajoute une unité par tranche de 60 éléments renvoyés par `candleSnapshot`. Soit $M$ le nombre de bougies renvoyées. Le poids documenté vaut :
+
+$$
+W(M)=20+\left\lfloor\frac{M}{60}\right\rfloor.
+$$
+
+La taille de la réponse reste inconnue avant l'envoi. Soit $S$ le nombre de créneaux d'une minute demandés. Avant chaque tentative, le client réserve $W(S)$ dans son token bucket, en utilisant $S$ comme borne supérieure prudente de $M$. Une requête initiale de 5 000 créneaux réserve donc $20+\lfloor5{,}000/60\rfloor=103$ unités avant d'atteindre le serveur. L'ancienne implémentation débitait le poids supplémentaire après la réponse, ce qui autorisait une rafale initiale à devancer le budget local.
+
+Les erreurs de transport HTTP, le statut 429 et les erreurs serveur sont retentés jusqu'à quatre tentatives au total, avec une attente exponentielle et une composante aléatoire. Les erreurs client, par exemple une requête invalide, ne sont pas retentées. Relancer une fenêtre ayant échoué reste sûr : la progression vient des lignes stockées et les insertions de chevauchement partagent la même clé logique.
 
 ## Le chevauchement est sûr, mais les doublons existent temporairement
 
@@ -104,9 +140,19 @@ La surveillance de la fraîcheur ressemble parfois à un simple agrément de tab
 
 ![Seuils de fraîcheur configurés et horizon REST](images/01_freshness_timeline.png)
 
-Le graphique utilise le fichier `config.toml` versionné, pas des pannes observées en production. Les seuils warning, serious, urgent et critical se situent à 60, 720, 2 880 et 4 320 minutes. La borne REST nominale vaut 5 000 minutes. Il reste donc 680 minutes, soit 11 heures et 20 minutes, entre l'alerte critique et cette limite configurée.
+Le graphique utilise le fichier `config.toml` versionné, pas des pannes observées en production. Les seuils warning, serious, urgent et critical se situent à 60, 720, 2 880 et 4 320 minutes. La première ouverture de la fenêtre configurée de 5 000 créneaux se trouve 4 999 minutes avant la dernière, ce qui laisse 679 minutes, soit 11 heures et 19 minutes, après le seuil critique. Cette marge vient de la configuration ; elle ne mesure pas la rétention de la source.
 
-La commande de qualité ne contrôle pas seulement le retard. Elle présente la fraîcheur des symboles actifs, les clés brutes en double, les trous, les nombres de lignes quotidiens, les parts ClickHouse actives et les derniers cycles d'ingestion. La fraîcheur est limitée à l'univers Hyperliquid courant. Un contrat retiré ne déclenche ainsi pas une fausse alerte permanente, tandis que son historique reste intact.
+La commande de qualité ne contrôle pas seulement le retard. Elle présente la fraîcheur des symboles actifs, les clés brutes en double, les trous candidats, les nombres de lignes quotidiens, les parts ClickHouse actives et les derniers cycles d'ingestion. La fraîcheur est limitée à l'univers Hyperliquid courant. Un contrat retiré ne déclenche ainsi pas une fausse alerte permanente, tandis que son historique reste intact.
+
+La couverture demande une formulation précise. Soient $t_{\min}$ et $t_{\max}$ la première et la dernière ouverture stockées dans une fenêtre mesurée, et $U$ le nombre de clés `(symbol, open_time)` uniques. Le nombre attendu de créneaux d'une minute et le taux observé valent :
+
+$$
+E=\left\lfloor\frac{t_{\max}-t_{\min}}{\Delta}\right\rfloor+1,
+\qquad
+Q=\frac{U}{E}.
+$$
+
+$Q<1$ signale des créneaux absents du stockage. Il ne prouve pas une panne d'ingestion, car la documentation officielle ne garantit pas une bougie pour chaque minute sans transaction. La réparation peut recharger la fenêtre en toute sécurité, mais une minute réellement absente à la source peut rester visible dans les rapports suivants.
 
 ## La compression a été mesurée, pas devinée
 
@@ -132,8 +178,15 @@ Le schéma Hyperliquid créé reprend la structure de codecs mesurée tout en ch
 
 Le service résiste aux redémarrages tant que les données restent dans la fenêtre récupérable de la source. Il recalcule son état à partir des lignes stockées, recharge un chevauchement borné, isole les échecs par symbole et tente de réparer les trous internes récents. Les tests unitaires couvrent l'arithmétique temporelle, la pagination, le parsing, la construction des fenêtres de travail, la gestion des trous et les écritures par lots.
 
-La conception ne peut pas récupérer une panne plus ancienne que l'historique REST. Le réglage nominal de 5 000 minutes ne constitue pas non plus une garantie contractuelle que chaque requête exposera exactement 5 000 bougies. Le projet mentionne un sondage réel proche de 5 186 bougies, mais fonctionne prudemment avec 5 000. Un historique profond exige toujours une autre source, par exemple une archive, ou une collecte continue avant l'expiration de la fenêtre.
+La conception ne peut pas récupérer une panne plus ancienne que l'historique REST. Une fenêtre configurée à 5 000 bougies n'est pas un accord de niveau de service, et la disponibilité s'exprime en bougies plutôt qu'en minutes exactes de temps civil. Un historique profond exige toujours une autre source, par exemple une archive, ou une collecte continue avant l'expiration de la fenêtre.
 
 Une autre limite mérite d'être explicite : le dépôt ne contient aucun rapport de qualité de production figé. Le modèle de panne, le comportement testé, les seuils configurés et l'expérience mesurée sur les codecs sont documentés. En revanche, les fichiers versionnés ne permettent pas d'affirmer un uptime de production, un débit d'ingestion, un nombre de lignes accumulées ou le ratio de compression de la table réelle.
 
-Cette retenue fait partie du travail sur une infrastructure de recherche sérieuse. Un pipeline de données de marché durable doit rendre ses garanties lisibles, mais aussi ses inconnues.
+La frontière utile est nette : les tests unitaires étayent l'arithmétique temporelle, la validation, la pagination, le calcul du poids des retries, le chemin de déduplication et les écritures découpées. L'expérience de compression du dépôt étaye le choix des codecs. L'uptime, le débit, la couverture réelle et le coût de stockage en production restent inconnus.
+
+## Références
+
+- [Endpoint `info` et `candleSnapshot` d'Hyperliquid](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [Limites et poids des requêtes Hyperliquid](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits)
+- [`ReplacingMergeTree` dans ClickHouse](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree)
+- [Codecs de compression des colonnes ClickHouse](https://clickhouse.com/docs/data-compression/compression-in-clickhouse)

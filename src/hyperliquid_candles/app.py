@@ -31,6 +31,7 @@ from hyperliquid_candles.ingestion.gaps import (
 from hyperliquid_candles.ingestion.incremental import build_incremental_work_items
 from hyperliquid_candles.ingestion.windows import (
     compute_initial_start_ms,
+    earliest_open_ms_for_candle_count,
     last_closed_open_ms,
 )
 from hyperliquid_candles.logging_setup import setup_logging
@@ -124,8 +125,10 @@ def run_ingestion_cycle(
     )
     watermarks_ms = query_watermarks_ms(clickhouse_client, database=database)
     last_closed_ms = last_closed_open_ms()
-    horizon_floor_ms = (
-        last_closed_ms - settings.ingestion.rest_horizon_min * INTERVAL_MS
+    horizon_floor_ms = earliest_open_ms_for_candle_count(
+        last_open_ms=last_closed_ms,
+        candle_count=settings.ingestion.rest_horizon_candles,
+        interval_ms=INTERVAL_MS,
     )
 
     symbol_statuses: list[SymbolStatus] = []
@@ -157,7 +160,7 @@ def run_ingestion_cycle(
         last_closed_ms=last_closed_ms,
         overlap_candles=settings.ingestion.overlap_candles,
         interval_ms=INTERVAL_MS,
-        rest_horizon_min=settings.ingestion.rest_horizon_min,
+        rest_horizon_candles=settings.ingestion.rest_horizon_candles,
     )
     for item in work_items:
         inserted, status = _ingest_window(
@@ -262,7 +265,7 @@ def _ingest_initial_symbol(
     """Fetch and store the initial backfill window for one new symbol."""
     requested_ms, effective_ms, was_clamped = compute_initial_start_ms(
         last_closed_ms=last_closed_ms,
-        rest_horizon_min=settings.ingestion.rest_horizon_min,
+        rest_horizon_candles=settings.ingestion.rest_horizon_candles,
         requested_start_time_utc=settings.ingestion.initial_backfill_start_time_utc,
     )
     if was_clamped:
@@ -319,7 +322,8 @@ def _fetch_store_status(
 
     A failure isolated to this symbol returns a ``failed`` status with zero rows
     so the rest of the cycle proceeds. The shared backward-paginating fetcher
-    guarantees the full window is retrieved even if it ever exceeds one API page.
+    assembles every page the source still makes reachable and stops defensively
+    if the source returns no rows or fails to honor the decreasing end cursor.
     """
     database = settings.clickhouse.database
     batch_max_rows = settings.ingestion.batch_insert_max_rows

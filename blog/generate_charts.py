@@ -49,7 +49,8 @@ def plot_freshness_timeline() -> None:
     """Plot configured alert thresholds against the nominal REST horizon.
 
     The x-axis is downtime in hours. Points correspond to warning, serious,
-    urgent, and critical freshness alerts plus the 5,000-minute REST horizon.
+    urgent, and critical freshness alerts plus the first open in a 5,000-slot
+    inclusive candle window, which lies 4,999 minutes behind the final open.
     The shaded final interval shows the configured repair margin between the
     critical alert and the nominal horizon.
     """
@@ -71,7 +72,7 @@ def plot_freshness_timeline() -> None:
     axis.text(
         (critical_hours + horizon_hours) / 2,
         0.30,
-        "11 h 20 min configured repair margin",
+        "11 h 19 min configured repair margin",
         ha="center",
         va="bottom",
         color=CORAL,

@@ -7,9 +7,10 @@ paginated but incremental issued one unchecked request.
 
 Empirical Hyperliquid `candleSnapshot` behaviour (probed against the live API)
 -----------------------------------------------------------------------------
-- The REST horizon is anchored to *now*: only roughly the most recent ~5186
-  one-minute candles are available. A request whose window reaches further back
-  than that simply returns the slice that still falls inside the horizon.
+- The observed REST horizon is anchored to *now*. A 13 July 2026 BTC probe
+  returned 5,198 rows from a 6,001-slot request, while the official docs state
+  that the most recent 5,000 candles are available. A request whose window
+  reaches further back returns only the slice still exposed by the endpoint.
 - Truncation is *newest-anchored*: when the requested window is wider than what
   is available, the response keeps the candles nearest ``endTime`` and silently
   drops the oldest overflow.

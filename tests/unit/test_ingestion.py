@@ -69,10 +69,10 @@ def test_build_incremental_work_items_overlap_and_clamp_to_horizon() -> None:
         last_closed_ms=1_000_300_000,
         overlap_candles=5,
         interval_ms=60_000,
-        rest_horizon_min=5,
+        rest_horizon_candles=5,
     )
 
     assert [(item.symbol, item.start_ms, item.end_ms) for item in work_items] == [
-        ("BTC", 1_000_000_000, 1_000_300_000),
-        ("ETH", 1_000_000_000, 1_000_300_000),
+        ("BTC", 1_000_060_000, 1_000_300_000),
+        ("ETH", 1_000_060_000, 1_000_300_000),
     ]

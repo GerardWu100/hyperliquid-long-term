@@ -71,8 +71,8 @@ def classify_freshness(minutes_behind: float, ingestion: "IngestionSettings") ->
 
     Severity rises as stored data falls further behind the latest closed candle.
     The `critical` tier is tuned to fire before staleness reaches Hyperliquid's
-    REST recovery horizon (~72h), beyond which missing candles can no longer be
-    backfilled from REST.
+    configured REST recovery window (about 83 hours for 5,000 continuous
+    one-minute slots), beyond which missing candles may no longer be available.
     """
     if minutes_behind >= ingestion.alert_critical_min:
         return "critical"

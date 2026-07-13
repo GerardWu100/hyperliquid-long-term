@@ -45,8 +45,12 @@ cache.
 - `ratelimit.py`: token-bucket pacing for weighted Hyperliquid REST requests.
 - `scripts_run_once.py`: console-script entrypoint for one cycle.
 - `hyperliquid/client.py`: HTTP POST client for `meta` and `candleSnapshot`.
+  Candle calls reserve base and estimated response-item weight before each HTTP
+  attempt, then validate that returned symbols and open times match the request.
 - `hyperliquid/universe.py`: active symbol selection from `meta`.
-- `hyperliquid/candles.py`: candle dataclass and parser.
+- `hyperliquid/candles.py`: candle dataclass and parser. It rejects unexpected
+  intervals, misaligned timestamps, invalid OHLC ranges, and negative volume or
+  trade counts before storage.
 - `ingestion/windows.py`: last-closed-minute and initial-start calculations.
 - `ingestion/fetch.py`: the single `fetch_candle_window` primitive. It pages
   backward by `endTime` because Hyperliquid's `candleSnapshot` is newest-anchored
@@ -83,5 +87,6 @@ pure ingestion logic.
 - 2026-06-22: Scheduler mode keeps one process log for repeated cycles; one-shot mode still creates a log for its single run.
 - 2026-06-22: Unified all fetching on a backward-paginating `fetch_candle_window` after probing the live API: `candleSnapshot` is newest-anchored with a ~5186-candle horizon tied to now, so forward-by-start pagination could not reach older data. Incremental no longer issues a single unchecked request.
 - 2026-06-22: Inserts now run per symbol in `batch_insert_max_rows` chunks (previously one unbounded all-symbols insert), bounding memory on full-universe cold starts and isolating per-symbol failures.
-- 2026-06-22: Added a gap-backfill phase. Verified against the live API that Hyperliquid emits a candle every minute (continuous even for illiquid coins), so internal gaps are real ingestion misses and safe to refetch; repair is bounded to the REST horizon.
+- 2026-06-22: Added a gap-backfill phase bounded to the recent REST window.
 - 2026-06-24: Changed raw candle compression away from Gorilla after the benchmark showed `Delta` is better for OHLC prices and plain `ZSTD` is better for lossless fractional volume.
+- 2026-07-13: Corrected inclusive horizon arithmetic, pre-reserved candle response weight, and removed the unsupported assumption that every no-trade minute must have a source candle.

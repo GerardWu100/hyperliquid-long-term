@@ -20,7 +20,7 @@ small overlap window, and inserts idempotently. Deduplication is handled by a
 same candle never corrupts the database.
 
 The dominant external constraint is the Hyperliquid REST limit: **only the most
-recent ~5000 candles per symbol are reachable** (5000 minutes ≈ **3.47 days**
+recent ~5000 candles per symbol are reachable** (4999 intervals ≈ **3.47 days**
 for 1m), under a shared **1200 weight/minute per-IP** budget. Because there is
 no batch candle endpoint, we issue one request per symbol and pace them with a
 token-bucket rate limiter. These two facts drive every sizing decision below:
@@ -442,7 +442,7 @@ after a crash mid-insert. We keep `candles_1m` as the single source of truth.
 ```
 interval_ms        = 60_000          # 1 minute
 overlap_candles    = 5               # re-fetch last 5 closed candles each cycle
-rest_horizon_min   = 5000            # HL hard limit (~3.47 days for 1m)
+rest_horizon_candles = 5000          # conservative recent-candle slot count
 page_limit         = 5000            # assume up to 5000/req; paginate defensively
 poll_interval_sec  = 900             # 15 minutes (see scheduling, can be 3600)
 weight_budget_pm   = 900             # stay under HL 1200/min with headroom
@@ -493,7 +493,7 @@ function run_incremental_cycle(symbols, ch, hl):
             continue                # no history -> handled by initial backfill
         start_ms = wm - overlap_candles * interval_ms     # overlap window
         # clamp start to REST horizon so we never request unreachable history
-        horizon_floor = last_closed - rest_horizon_min * interval_ms
+        horizon_floor = last_closed - (rest_horizon_candles - 1) * interval_ms
         start_ms = max(start_ms, horizon_floor)
         if start_ms > last_closed:
             continue                # already current
@@ -541,7 +541,7 @@ use a plan-chosen default. The **effective start time** is recorded per symbol i
 `ingestion_symbol_status` (§5.3b).
 
 **Default justification**: when no start time is provided, default to the full
-REST-reachable window, i.e. `rest_horizon_floor` (~3.47 days / 5000 minutes
+REST-reachable window, i.e. `rest_horizon_floor` (~3.47 days / 5,000 slots
 before `last_closed`). Rationale — REST cannot return anything older anyway, so
 the most useful zero-config behavior is to seed the maximum the API can give;
 the service then accumulates true long-term history going forward. (A shorter
@@ -549,7 +549,7 @@ default would discard freely available history for no benefit.)
 
 ```text
 function compute_initial_start(last_closed, config):
-    rest_horizon_floor = last_closed - rest_horizon_min * interval_ms
+    rest_horizon_floor = last_closed - (rest_horizon_candles - 1) * interval_ms
 
     if config.INITIAL_BACKFILL_START_TIME_UTC is set:
         requested_start = parse_iso8601_utc(config.INITIAL_BACKFILL_START_TIME_UTC)
@@ -780,7 +780,7 @@ Concrete checks (shipped in `quality/checks.py`, surfaced by
    **Outage alert thresholds (Fix 7)** — derived from `minutes_behind`, applied
    per symbol (most-behind symbol drives overall severity). Configurable; the key
    point is to warn *before* downtime nears the unrecoverable REST horizon
-   (~72h / 5000 min):
+   (about 83h for 5,000 continuous one-minute slots):
 
    | `minutes_behind` | Severity |
    |---|---|
@@ -910,7 +910,7 @@ hyperliquid-candles/
 Dev: `ruff` (already present), `pytest`.
 
 **`config.toml` tunables (each commented):** `poll_interval_sec`,
-`overlap_candles`, `rest_horizon_min`, `weight_budget_per_min`,
+`overlap_candles`, `rest_horizon_candles`, `weight_budget_per_min`,
 `request_timeout_sec`, `max_retries`, `symbols_mode` (`"all"` | `"allowlist"`),
 `symbols_allowlist`, `batch_insert_max_rows`, `log_level`,
 `initial_backfill_start_time_utc` (optional ISO-8601 UTC),

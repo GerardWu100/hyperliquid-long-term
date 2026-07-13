@@ -4,7 +4,8 @@ This project ingests Hyperliquid perpetual 1-minute candles into an existing
 ClickHouse database. It is built for long-running research storage: the service
 polls all active perpetual symbols, stores closed candles only, re-fetches a
 small overlap window, and relies on ClickHouse `ReplacingMergeTree` keys for
-idempotent inserts.
+idempotent inserts. Source rows are rejected if their interval, timestamp
+alignment, OHLC range, volume, trade count, symbol, or request window is invalid.
 
 ClickHouse is external to this repository. The project creates logical database
 objects if they are missing, but it does not install, configure, containerize, or
@@ -91,8 +92,14 @@ chunked inserts, and recoverable-gap detection and parsing.
 
 ## Scope
 
-The service uses Hyperliquid REST `candleSnapshot` only. REST can only recover
-roughly the most recent 5000 one-minute candles per symbol, so true long-term
-history is accumulated by keeping this service running. Deep historical S3
-archive ingestion, trading, WebSocket ingestion, and ClickHouse operations are
-out of scope.
+The service uses Hyperliquid REST `candleSnapshot` only. Hyperliquid documents
+availability of the most recent 5,000 candles. The project therefore requests a
+conservative 5,000-slot one-minute window and accumulates older history by
+remaining online. Deep historical S3 archive ingestion, trading, WebSocket
+ingestion, and ClickHouse operations are out of scope.
+
+## Source References
+
+- [Hyperliquid info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [Hyperliquid rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits)
+- [ClickHouse ReplacingMergeTree](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree)

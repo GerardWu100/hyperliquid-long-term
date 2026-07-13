@@ -86,7 +86,7 @@ class IngestionSettings:
 
     poll_interval_sec: int = 1800
     overlap_candles: int = 5
-    rest_horizon_min: int = 5000
+    rest_horizon_candles: int = 5000
     weight_budget_per_min: int = 900
     request_timeout_sec: int = 30
     max_retries: int = 4
@@ -145,7 +145,9 @@ class Settings:
         ingestion = IngestionSettings(
             poll_interval_sec=int(config_values.get("poll_interval_sec", 1800)),
             overlap_candles=int(config_values.get("overlap_candles", 5)),
-            rest_horizon_min=int(config_values.get("rest_horizon_min", 5000)),
+            rest_horizon_candles=int(
+                config_values.get("rest_horizon_candles", 5000)
+            ),
             weight_budget_per_min=int(config_values.get("weight_budget_per_min", 900)),
             request_timeout_sec=int(config_values.get("request_timeout_sec", 30)),
             max_retries=int(config_values.get("max_retries", 4)),
@@ -245,7 +247,7 @@ def _validate_positive_tunables(ingestion: IngestionSettings) -> None:
     positive_fields = {
         "poll_interval_sec": ingestion.poll_interval_sec,
         "overlap_candles": ingestion.overlap_candles,
-        "rest_horizon_min": ingestion.rest_horizon_min,
+        "rest_horizon_candles": ingestion.rest_horizon_candles,
         "weight_budget_per_min": ingestion.weight_budget_per_min,
         "request_timeout_sec": ingestion.request_timeout_sec,
         "max_retries": ingestion.max_retries,

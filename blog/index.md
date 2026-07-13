@@ -8,7 +8,7 @@ categories: ["Data Science", "Capital Markets", "Quantitative Research"]
 
 # Building Long-Term Hyperliquid Candle History from a Short REST Window
 
-Hyperliquid's REST application programming interface (API) exposes only a recent slice of one-minute candles. The project documentation uses a working horizon of roughly 5,000 candles, or 3 days, 11 hours, and 20 minutes. Once an outage exceeds that window, a REST collector cannot reconstruct the missing history.
+Hyperliquid's REST application programming interface (API) exposes only a recent slice of one-minute candles. Its official documentation says the most recent 5,000 candles are available. This project treats 5,000 one-minute slots as a conservative request window. If every minute has a candle, those 5,000 inclusive opens span 4,999 minutes, or about 3 days and 11 hours. Once an outage passes the source's retained history, a REST collector cannot reconstruct it.
 
 That constraint changes the engineering problem. This is not a one-off downloader. It is a small service that must keep running, know exactly where storage ends for every perpetual contract, tolerate repeated inserts, and repair misses while the source still remembers them.
 
@@ -26,15 +26,23 @@ t_{\mathrm{closed}}
 \left\lfloor\frac{t}{\Delta}\right\rfloor\Delta-\Delta.
 $$
 
-For symbol $s$, let $w_s$ be the latest stored open time, $k$ be the number of overlap candles, and $H$ be the REST horizon measured in one-minute candles. The incremental request begins at:
+Let $H$ be the configured number of candle slots. Because $H$ inclusive candle opens contain only $H-1$ intervals, the earliest requested open is:
+
+$$
+t_{\mathrm{floor}}
+=
+t_{\mathrm{closed}}-(H-1)\Delta.
+$$
+
+For symbol $s$, let $w_s$ be the latest stored open time and let $k$ be the number of overlap candles. The incremental request begins at:
 
 $$
 t_{\mathrm{start},s}
 =
-\max\left(w_s-k\Delta,\ t_{\mathrm{closed}}-H\Delta\right).
+\max\left(w_s-k\Delta,\ t_{\mathrm{floor}}\right).
 $$
 
-The first term deliberately re-fetches recent rows. The second prevents the service from spending requests on time ranges that REST can no longer return. With the checked-in configuration, $k=5$ and $H=5{,}000$.
+The first term deliberately re-fetches recent rows. The second bounds the request to the project's conservative recent window. With the checked-in configuration, $k=5$ and $H=5{,}000$. An earlier version subtracted $H\Delta$, which requested 5,001 inclusive slots. The implementation and tests now use $(H-1)\Delta$.
 
 ## ClickHouse rows are the watermark
 
@@ -46,14 +54,18 @@ The cycle has three passes:
 
 1. New symbols receive an initial backfill, clamped to the recoverable REST window.
 2. Existing symbols are fetched from their watermark minus five minutes through the latest closed minute.
-3. Internal gaps still inside the REST window are detected and fetched again.
+3. Candidate missing slots inside the REST window are detected and fetched again.
 
 One symbol can fail without cancelling inserts for every other symbol. Writes are also chunked by a configurable row limit, so a full-universe cold start does not become one unbounded in-memory batch.
 
 The core window calculation is short:
 
 ```python
-horizon_floor_ms = last_closed_ms - rest_horizon_min * interval_ms
+horizon_floor_ms = earliest_open_ms_for_candle_count(
+    last_open_ms=last_closed_ms,
+    candle_count=rest_horizon_candles,
+    interval_ms=interval_ms,
+)
 
 for symbol in symbols:
     watermark_ms = watermarks_ms.get(symbol)
@@ -70,9 +82,21 @@ for symbol in symbols:
 
 No cursor is trusted merely because the previous process claimed success. Progress is inferred from durable data.
 
+The storage contract is intentionally plain:
+
+| Field group | ClickHouse type | Invariant before insert |
+|---|---|---|
+| `symbol` | `LowCardinality(String)` | Must equal the requested market |
+| `open_time`, `close_time` | `DateTime64(3, 'UTC')` | Open aligns to 60,000 milliseconds; close equals open plus 59,999 milliseconds |
+| open, high, low, close (OHLC) | `Float64` | High is no lower than every OHLC value; low is no higher than every OHLC value |
+| `volume` | `Float64` | Non-negative |
+| `trades` | `UInt32` | Non-negative integer |
+
+Unix epoch milliseconds are timezone-independent. The writer converts them to timezone-aware Coordinated Universal Time (UTC) Python datetimes only at the ClickHouse boundary. A naive datetime returned by a driver is explicitly interpreted as UTC, avoiding a silent shift by the host's local offset.
+
 ## Why pagination walks backward
 
-The least obvious problem sits in the source API. The repository's live probes found `candleSnapshot` to be newest-anchored: when a requested window is too wide, the response retains candles near `endTime` and silently drops older overflow.
+The least obvious problem sits in the source API. The official info-endpoint page gives general forward-pagination guidance for time-range responses. The repository's `candleSnapshot` probes found a different boundary behavior for oversized candle windows: the response retained candles near `endTime` and dropped older overflow. A probe repeated during this audit returned 5,198 recent BTC one-minute candles from a 6,001-slot request. That is an observation from 13 July 2026, not an API guarantee.
 
 Forward pagination cannot recover that overflow. Repeating a broad request with the same end keeps returning the newest reachable slice. The fetcher instead moves `endTime` backward to one interval before the oldest candle just received:
 
@@ -88,7 +112,19 @@ if next_cursor_end_ms >= cursor_end_ms:
 cursor_end_ms = next_cursor_end_ms
 ```
 
-The cursor-progress guard matters. If the API ever ignores `endTime`, the loop stops instead of spinning forever. Initial backfill, incremental catch-up, and gap repair all call this same fetch primitive, so pagination behavior cannot drift across paths.
+The cursor-progress guard matters. If the API ever ignores `endTime`, the loop stops instead of spinning forever. Initial backfill, incremental catch-up, and gap repair all call this same fetch primitive, so pagination behavior cannot drift across paths. Returned rows must also match the requested symbol and inclusive time window; malformed interval, timestamp, price-range, volume, or trade-count fields fail the symbol before storage.
+
+## Rate limits are reserved before the HTTP request
+
+Hyperliquid assigns most `info` requests a base weight of 20 and adds one unit per 60 items returned by `candleSnapshot`. Let $M$ be the number of returned candles. The documented request weight is:
+
+$$
+W(M)=20+\left\lfloor\frac{M}{60}\right\rfloor.
+$$
+
+The response size is unknown before a request. Let $S$ be the number of requested one-minute slots. The client reserves $W(S)$ from its token bucket before every attempt, using $S$ as a conservative upper bound for $M$. A 5,000-slot initial request therefore reserves $20+\lfloor5{,}000/60\rfloor=103$ units before it reaches the server. The previous implementation charged the extra item weight after the response, which allowed a cold-start burst to run ahead of its local budget.
+
+HTTP transport errors, status 429, and server errors are retried up to four total attempts with exponential backoff and random jitter. Client errors such as an invalid request are not retried. Re-running a failed window is safe because progress comes from stored rows and overlap inserts share the same logical key.
 
 ## Overlap is safe, but duplicates are temporarily real
 
@@ -104,9 +140,19 @@ Freshness monitoring is often treated as a dashboard nicety. Here it protects da
 
 ![Configured freshness thresholds and REST horizon](images/01_freshness_timeline.png)
 
-The chart uses the checked-in `config.toml`, not observed production downtime. Warning, serious, urgent, and critical thresholds occur at 60, 720, 2,880, and 4,320 minutes. The nominal REST floor is 5,000 minutes, leaving 680 minutes, or 11 hours and 20 minutes, between the critical alert and that configured boundary.
+The chart uses the checked-in `config.toml`, not observed production downtime. Warning, serious, urgent, and critical thresholds occur at 60, 720, 2,880, and 4,320 minutes. The first open in the configured 5,000-slot window lies 4,999 minutes behind the final open, leaving 679 minutes, or 11 hours and 19 minutes, after the critical threshold. This is a configured safety margin, not measured source retention.
 
-The quality command checks more than lag. It reports active-symbol freshness, duplicate raw keys, gaps, daily row counts, active ClickHouse parts, and recent ingestion runs. Freshness is scoped to the current Hyperliquid universe, which prevents a delisted contract from producing a permanent false alarm while preserving its historical rows.
+The quality command checks more than lag. It reports active-symbol freshness, duplicate raw keys, candidate gaps, daily row counts, active ClickHouse parts, and recent ingestion runs. Freshness is scoped to the current Hyperliquid universe, which prevents a delisted contract from producing a permanent false alarm while preserving its historical rows.
+
+Coverage needs careful wording. Let $t_{\min}$ and $t_{\max}$ be the first and last stored opens in a measured window, and let $U$ be the number of unique `(symbol, open_time)` keys. The expected number of one-minute slots and the observed slot ratio are:
+
+$$
+E=\left\lfloor\frac{t_{\max}-t_{\min}}{\Delta}\right\rfloor+1,
+\qquad
+Q=\frac{U}{E}.
+$$
+
+$Q<1$ identifies absent stored slots. It does not prove ingestion failure because the official API documentation does not promise a candle for every no-trade minute. Gap repair can safely refetch the boundary window, but a genuine source-level empty minute may remain in later reports.
 
 ## Compression was measured, not guessed
 
@@ -132,8 +178,15 @@ The created Hyperliquid schema follows the measured column pattern while choosin
 
 The service is restart-safe within the source's recoverable window. It recomputes state from stored rows, re-fetches a bounded overlap, isolates per-symbol failures, and attempts to heal recent internal gaps. Those properties are covered by unit tests for time arithmetic, pagination, parsing, work-item construction, gap handling, and chunked writes.
 
-The design cannot recover an outage older than REST history. A nominal 5,000-minute setting is also not a contractual guarantee that every request will expose exactly 5,000 candles. The project notes a live probe near 5,186 candles, but it conservatively operates on 5,000. Deep history still requires another source, such as an archive, or continuous collection before the window expires.
+The design cannot recover an outage older than REST history. A configured 5,000-candle window is not a service-level agreement, and availability is expressed in candles rather than elapsed wall-clock minutes. Deep history still requires another source, such as an archive, or continuous collection before the window expires.
 
 There is one more boundary worth keeping explicit: the repository contains no frozen production quality report. I can explain the failure model, tested behavior, configured thresholds, and measured codec experiment. I cannot honestly claim production uptime, ingest throughput, accumulated row count, or the live table's compression ratio from the material checked into this project.
 
-That restraint is part of building research infrastructure well. A durable market-data pipeline should make its guarantees legible, and its unknowns just as legible.
+The useful dividing line is simple: unit tests support the time arithmetic, validation, pagination, retry accounting, deduplication path, and chunked writes. The repository's compression experiment supports codec selection. Uptime, throughput, live coverage, and production storage cost remain unmeasured.
+
+## References
+
+- [Hyperliquid info endpoint and `candleSnapshot`](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [Hyperliquid rate limits and request weights](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits)
+- [ClickHouse `ReplacingMergeTree`](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree)
+- [ClickHouse column compression codecs](https://clickhouse.com/docs/data-compression/compression-in-clickhouse)
