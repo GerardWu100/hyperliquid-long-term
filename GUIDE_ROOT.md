@@ -37,6 +37,9 @@ logging for their single cycle.
 - `Dockerfile`: builds the service image with `uv`.
 - `docker-compose.yml`: runs the service with restart policy and external
   ClickHouse networking notes.
+- `CODE_EXPLAINED.html`: self-contained walkthrough of the whole codebase, with a
+  relationship diagram, the real maths, and sample inputs and outputs taken from
+  running the code against the live endpoint and ClickHouse.
 - `main.py`: compatibility wrapper for the long-running scheduler.
 - `notes.md`: short project notes for operational behavior and concerns.
 - `src/hyperliquid_candles/`: importable service package.
@@ -53,3 +56,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 - 2026-06-24: Updated the raw candle DDL to follow the compression benchmark: Delta plus ZSTD(12) for prices, plain ZSTD(12) for lossless fractional volume, DoubleDelta for timestamps, and T64 for trades.
 - 2026-06-29: Added a password-free ClickHouse user XML example and README bootstrap one-liner for creating the database plus scoped writable user.
 - 2026-07-13: Corrected the 5,000-candle boundary to span 4,999 intervals, reserved candle response weight before each request, and treated missing minutes as repair candidates rather than proven source candles.
+- 2026-08-10: Added `CODE_EXPLAINED.html`. Fixed three defects found while writing it: log records were stamped with the formatting time instead of their own creation time, the scheduler's interruptible sleep could be handed a negative duration and crash the service loop, and `run_once` leaked one ClickHouse connection pool per cycle.

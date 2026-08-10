@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperliquid long-term candles - code explanation</title>
+<script>
+  window.MathJax = { tex: { inlineMath: [['$','$'],['\\(','\\)']], displayMath: [['$$','$$'],['\\[','\\]']] } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<script type="module">
+  // the map diagram at the top of the page; theme follows the page palette
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  mermaid.initialize({ startOnLoad: true, theme: isLight ? "neutral" : "dark",
+                       flowchart: { curve: "basis", useMaxWidth: true } });
+</script>
+<style>
+  :root{
+    /* dark is the default palette; a light override follows below */
+    --paper:#12161b; --bg:#12161b; --panel:#1b2027; --card:#1a1f26; --surface:#1a1f26; --raise:#1e242c;
+    --ink:#e9eef4; --soft:#b3bec9; --muted:#b3bec9; --faint:#828d99;
+    --line:#2c343e; --line2:#232a33;
+    --green:#6fc796; --greenbg:#14241c; --greenline:#2f4d3a;
+    --amber:#e0b365; --amberbg:#262010; --amberline:#4d3f20;
+    --blue:#87b8ee; --bluebg:#141e2b; --blueline:#2d425c;
+    --red:#e89296; --redbg:#26161a; --redline:#4f2f35;
+    --slate:#a7b1be; --slatebg:#1c2027; --slateline:#353c46;
+    --accent:#4fb9c2; --accent-ink:#6fd0d8; --accent-bg:#10262a;
+    --def:#87b8ee; --def-bg:#141e2b; --def-bd:#2d425c;
+    --why:#6fc796; --why-bg:#14241c; --why-bd:#2f4d3a;
+    --warn:#e0b365; --warn-bg:#262010; --warn-bd:#4d3f20;
+    --flag:#e89296; --flag-bg:#26161a; --flag-bd:#4f2f35;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  }
+  :root[data-theme="light"]{
+    --paper:#faf8f4; --bg:#faf8f4; --panel:#f1ede6; --card:#ffffff; --surface:#ffffff; --raise:#fbfaf7;
+    --ink:#1b1b1b; --soft:#4a453e; --muted:#4a453e; --faint:#777067;
+    --line:#d6d0c6; --line2:#e7e2da;
+    --green:#2f6b4c; --greenbg:#e7f1ea; --greenline:#bcdac9;
+    --amber:#8f6413; --amberbg:#f6efdd; --amberline:#e3d3a8;
+    --blue:#2c5f95; --bluebg:#e7eef7; --blueline:#c3d6ea;
+    --red:#943232; --redbg:#f6eaea; --redline:#e2c4c4;
+    --slate:#525a66; --slatebg:#eceef1; --slateline:#cdd2d9;
+    --accent:#0e7c86; --accent-ink:#0b5f67; --accent-bg:#e7f4f4;
+    --def:#2c5f95; --def-bg:#e7eef7; --def-bd:#c3d6ea;
+    --why:#2f6b4c; --why-bg:#e7f1ea; --why-bd:#bcdac9;
+    --warn:#8f6413; --warn-bg:#f6efdd; --warn-bd:#e3d3a8;
+    --flag:#943232; --flag-bg:#f6eaea; --flag-bd:#e2c4c4;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;font-size:16px}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:18px;line-height:1.58;-webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility}
+  .wrap{padding:2.2em clamp(1em,4vw,3.2em) 5em}
+
+  h1{font-size:clamp(2.1rem,5vw,2.7rem);line-height:1.12;letter-spacing:-.02em;font-weight:800;
+    text-wrap:balance;margin:.2em 0 .2em}
+  h2{font-size:1.5rem;font-weight:750;letter-spacing:-.01em;text-wrap:balance;
+    margin:2.4em 0 .5em;padding-top:.7em;border-top:2px solid var(--line)}
+  h3{font-size:1.26rem;font-weight:700;margin:1.7em 0 .4em;color:var(--ink)}
+  h3 code{font-size:.92em}
+  h4{font-size:1rem;margin:1.3em 0 .3em;text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+  p{margin:.7em 0}
+  ul,ol{margin:.55em 0;padding-left:1.3em}
+  li{margin:.3em 0}
+  strong,b{color:var(--ink)}
+  a{color:var(--accent-ink);text-underline-offset:2px}
+  a:hover{color:var(--accent)}
+  hr{border:none;border-top:1px solid var(--line);margin:2.5em 0}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  code{font-family:var(--mono);font-size:.9em;background:var(--panel);color:var(--ink);
+    padding:.1em .4em;border-radius:4px}
+  pre{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:1em 1.15em;
+    overflow-x:auto;font-size:.94rem;line-height:1.62;margin:1.1em 0;color:var(--ink);
+    font-family:var(--mono)}
+  pre code{background:none;padding:0;font-size:1em}
+  pre .c{color:var(--faint);font-style:italic}
+
+  .lede{font-size:1.12rem;line-height:1.48;color:var(--soft)}
+  .eyebrow{font-family:var(--mono);font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent-ink);margin:0 0 1.1em;display:flex;gap:.6em;align-items:center;flex-wrap:wrap}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .sec-no{font-family:var(--mono);font-size:.85rem;color:var(--accent-ink);
+    letter-spacing:.1em;display:block;margin-bottom:.15em}
+  .tag{display:inline-block;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;
+    background:var(--greenbg);color:var(--green);border:1px solid var(--greenline);
+    padding:.25em .75em;border-radius:20px;margin-bottom:1em}
+  .big{font-size:1.42rem;font-weight:700;color:var(--green)}
+  .pill{font-variant-numeric:tabular-nums;font-weight:600}
+  .fnote{font-size:.95rem;color:var(--soft)}
+  .reads{margin:.55em 0}
+  .reads b{color:var(--soft)}
+  .foot{margin-top:3em;padding-top:1.2em;border-top:1px solid var(--line);
+    color:var(--soft);font-size:.95rem}
+
+  .box{border:1px solid var(--line);border-left-width:4px;border-radius:10px;
+    padding:1em 1.2em;margin:1.3em 0;background:var(--card)}
+  .box>:first-child{margin-top:0}.box>:last-child{margin-bottom:0}
+  .box p:first-child{margin-top:0}.box p:last-child{margin-bottom:0}
+  .box .k{font-weight:700;font-size:.82rem;text-transform:uppercase;letter-spacing:.08em;
+    display:block;margin-bottom:.45em}
+  .def{border-left-color:var(--def);background:var(--def-bg)}.def .k{color:var(--def)}
+  .gist{border-left-color:var(--accent);background:var(--accent-bg)}.gist .k{color:var(--accent-ink)}
+  .why{border-left-color:var(--why);background:var(--why-bg)}.why .k{color:var(--why)}
+  .warn{border-left-color:var(--warn);background:var(--warn-bg)}.warn .k{color:var(--warn)}
+  .flag{border-left-color:var(--flag);background:var(--flag-bg)}.flag .k{color:var(--flag)}
+  .data{border-left-color:var(--slate);background:var(--slatebg)}.data .k{color:var(--slate)}
+  .io{display:grid;grid-template-columns:1fr 1fr;gap:.9em}
+  .io.stack{grid-template-columns:1fr}
+  @media (max-width:820px){.io{grid-template-columns:1fr}}
+  .io .lab{font-family:var(--mono);font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);font-weight:700}
+  .io pre{margin:.25em 0 0;font-size:.8rem;line-height:1.5}
+  .data>p{font-size:.95rem}
+
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:1.1em 1.4em;margin:1.8em 0}
+  .toc .rk{font-family:var(--mono);font-size:.76rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:.5em}
+  .toc ol{margin:.35em 0 0;padding-left:1.4em}
+  .toc a{text-decoration:none;color:var(--ink)}
+  .toc a:hover{color:var(--accent-ink)}
+
+  .scroll{overflow-x:auto;margin:1.2em 0}
+  table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:1rem;background:var(--card);
+    font-variant-numeric:tabular-nums}
+  .scroll table{margin:0}
+  th,td{border:1px solid var(--line);padding:.55em .75em;text-align:left;vertical-align:top}
+  th,thead th{background:var(--panel);color:var(--ink);font-weight:700}
+  td.n,th.n{text-align:right}
+  .pass{color:var(--green);font-weight:700}
+  .failw{color:var(--red);font-weight:700}
+
+  .chip{display:inline-block;font-size:.74rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.06em;padding:.15em .55em;border-radius:4px;white-space:nowrap;border:1px solid}
+  .c-veto{background:var(--redbg);color:var(--red);border-color:var(--redline)}
+  .c-drop{background:var(--amberbg);color:var(--amber);border-color:var(--amberline)}
+  .c-never{background:var(--slatebg);color:var(--slate);border-color:var(--slateline)}
+  .c-bug{background:var(--bluebg);color:var(--blue);border-color:var(--blueline)}
+  .legend{display:flex;flex-wrap:wrap;gap:.5em 1.1em;margin:1em 0 0;font-size:.92rem;color:var(--soft)}
+  .legend span.chip{margin-right:.4em}
+
+  figure{margin:1.6em 0;text-align:center}
+  figure img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;
+    background:#fff;padding:6px}
+  :root:not([data-theme="light"]) figure img{filter:brightness(.94) contrast(1.02)}
+  figcaption{font-size:.92rem;color:var(--soft);margin-top:.6em;
+    margin-left:auto;margin-right:auto}
+
+  /* the map diagram sits on its own plate and scrolls sideways rather than the page */
+  .mermaid{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:1.2em;margin:1.4em 0;overflow-x:auto;text-align:center;
+    font-family:var(--sans)}
+  .mermaid svg{max-width:100%;height:auto}
+
+  /* rendered maths inherits the page colour instead of MathJax's own default */
+  mjx-container,.katex{color:inherit}
+  mjx-container[display="true"],.katex-display{overflow-x:auto;overflow-y:hidden;padding:.15em 0}
+</style>
+</head><body>
+<div class="wrap">
+
+<p class="eyebrow"><span class="dot"></span>hyperliquid-long-term &middot; ingestion service &middot; code walkthrough</p>
+<h1>Collecting Hyperliquid minute candles: reading the code</h1>
+<p class="lede">What the service does, how the pieces fit together, and the handful of
+ideas you have to hold in your head to read any file in it.</p>
+
+<div class="box def">
+  <span class="k">How to use this</span>
+  <p>Sections follow the order in which one ingestion cycle runs. Every code snippet is
+  copied unchanged from the files under <code>src/hyperliquid_candles/</code>. Every number
+  in a grey <b>Sample data</b> box was printed by actually running the code on
+  10&nbsp;August&nbsp;2026 against the live Hyperliquid public endpoint and the project's own
+  ClickHouse server. Coloured boxes flag design choices, traps, and honest weaknesses.</p>
+</div>
+
+<div class="box why">
+  <span class="k">The process in plain English</span>
+  <p>Hyperliquid is a crypto derivatives exchange. Its public web interface will hand you
+  the last few thousand one-minute price bars for each market, but nothing older. This
+  service keeps a permanent copy: every half hour it wakes up, asks the database "what is
+  the newest bar I already have for each market?", asks Hyperliquid for everything since
+  then, and writes the result back. Because it does that forever, the database slowly
+  accumulates history the exchange itself will no longer serve. Nothing is stored in
+  memory between cycles, so the service can be killed and restarted at any moment without
+  losing its place.</p>
+</div>
+
+<h2 id="map"><span class="sec-no">00</span>Map</h2>
+
+<div class="mermaid">
+flowchart LR
+  read[("ClickHouse candles_1m")] --> wm["query_watermarks_ms()"]
+  api[("Hyperliquid REST info")] --> uni["select_symbols()"]
+  cfg["load_settings()"] --> cycle["run_ingestion_cycle()"]
+  wm --> cycle
+  uni --> cycle
+  cycle --> win["build_incremental_work_items()"]
+  cycle --> gaps["recoverable_gaps_query()"]
+  win --> fetch["fetch_candle_window()"]
+  gaps --> fetch
+  fetch --> parse["parse_candles()"]
+  parse --> writer["insert_candles()"]
+  writer --> store[("ClickHouse candles_1m and run tables")]
+</div>
+<p class="fnote">Rounded boxes are functions, named exactly as they are in the code.
+Cylinders are stored data. Arrows point the way data moves. The same ClickHouse table
+appears at both ends on purpose: the cycle starts by reading what it wrote last time, and
+that loop is the whole design. <code>fetch_candle_window()</code> is drawn once because
+there is genuinely only one of it &mdash; the normal catch-up path and the gap-repair path
+share it.</p>
+
+<div class="toc">
+  <div class="rk">Contents</div>
+  <ol>
+    <li><a href="#goal">The goal, and the one rule everything follows</a></li>
+    <li><a href="#config">Settings &mdash; <code>config.py</code>, <code>config.toml</code>, <code>.env</code></a></li>
+    <li><a href="#entry">The three commands and the loop &mdash; <code>app.py</code>, <code>scheduler.py</code></a></li>
+    <li><a href="#universe">Choosing which markets to collect &mdash; <code>universe.py</code></a></li>
+    <li><a href="#windows">Time arithmetic &mdash; <code>windows.py</code>, <code>incremental.py</code></a></li>
+    <li><a href="#client">Talking to Hyperliquid &mdash; <code>client.py</code>, <code>ratelimit.py</code></a></li>
+    <li><a href="#parse">Turning a payload into a candle &mdash; <code>candles.py</code></a></li>
+    <li><a href="#fetch">Paging backwards &mdash; <code>fetch.py</code></a></li>
+    <li><a href="#storage">Writing and reading ClickHouse &mdash; <code>storage/</code></a></li>
+    <li><a href="#gaps">Finding and repairing holes &mdash; <code>gaps.py</code></a></li>
+    <li><a href="#cycle">One cycle end to end &mdash; <code>run_ingestion_cycle()</code></a></li>
+    <li><a href="#quality">The health report &mdash; <code>quality/checks.py</code></a></li>
+    <li><a href="#logging">Logging &mdash; <code>logging_setup.py</code></a></li>
+    <li><a href="#fixes">Fixes applied while writing this page</a></li>
+    <li><a href="#callgraph">Call graph</a></li>
+    <li><a href="#edge">Edge cases</a></li>
+    <li><a href="#idiom">Idioms and traps</a></li>
+    <li><a href="#questions">If someone points at a line</a></li>
+    <li><a href="#limits">Limitations, stated honestly</a></li>
+    <li><a href="#verify">How the code is verified</a></li>
+  </ol>
+</div>
+
+<h2 id="goal"><span class="sec-no">01</span>The goal, and the one rule everything follows</h2>
+
+<p>A <b>candle</b> (also called a bar) summarises all trading in one time slot with six
+numbers: the first traded price (<b>open</b>), the highest and lowest prices
+(<b>high</b>, <b>low</b>), the last price (<b>close</b>), how much was traded
+(<b>volume</b>), and how many trades happened. This project collects one-minute candles
+for Hyperliquid's <b>perpetual</b> markets. A perpetual is a derivative contract that
+tracks an asset's price and never expires; traders call them "perps".</p>
+
+<p>Hyperliquid's documentation promises only the most recent 5,000 candles per market
+through its public request-and-response interface. At one minute each, that is roughly
+three and a half days. Anything older is simply gone from that interface. So the project's
+one job is: <b>stay online, and keep copying the recent window into a database before it
+scrolls away.</b></p>
+
+<div class="box why"><span class="k">The one rule: the database is the only memory</span>
+<p>The service holds no state between cycles &mdash; no watermark file, no cache, no
+in-memory bookmark. At the start of every cycle it asks ClickHouse
+<code>SELECT symbol, max(open_time) ... GROUP BY symbol</code> and rebuilds its plan from
+that answer. Kill the process mid-write and the next cycle simply sees a slightly older
+maximum and refetches. This is why there is no watermark table: a second copy of "where
+I got to" could disagree with the rows themselves, and then you would have to decide which
+one is right.</p></div>
+
+<div class="box def"><span class="k">Vocabulary used throughout this page</span>
+<p><b>ClickHouse</b> is the database, a column-oriented store built for large analytical
+tables. It is not installed or managed by this project; it must already exist.
+<b>Watermark</b> means the newest <code>open_time</code> already stored for one symbol.
+<b>REST</b> means the ordinary request-and-response web interface (as opposed to a
+streaming connection). <b>Horizon</b> means the oldest candle Hyperliquid will still
+serve. <b>Idempotent</b> means an operation you can repeat without changing the outcome:
+inserting the same candle twice leaves the same single candle.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the live database, 10 August 2026</span>
+<div class="io stack">
+<div><span class="lab">out &mdash; read-only queries against hyperliquid.candles_1m</span>
+<pre>total rows            13,002,252
+distinct symbols             180
+oldest open_time    2026-06-19 17:17:00 UTC
+newest open_time    2026-08-09 18:54:00 UTC
+rows per symbol      avg 72,235   min 8,152   max 73,572
+minutes with trades = 0   2,380,174  (18.3 per cent)
+duplicate (symbol, open_time) keys not yet merged   4,965  (0.04 per cent)
+internal gaps after FINAL deduplication                 0</pre></div>
+</div>
+<p>Fifty days of continuous minute data for 180 markets, collected by a service that can
+only see three and a half days at a time. That accumulation is the entire point. Note also
+that the newest candle is from 9 August while the query ran on 10 August &mdash; this
+instance had been stopped for about 28 hours, which is exactly the situation the freshness
+alerts in section 12 are designed to catch.</p></div>
+
+<h2 id="config"><span class="sec-no">02</span>Settings &mdash; <code>config.py</code>, <code>config.toml</code>, <code>.env</code></h2>
+
+<p>Settings arrive from two files with a deliberate split.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>File</th><th>Holds</th><th>Committed to git?</th><th>Loaded by</th></tr></thead>
+<tbody>
+<tr><td><code>.env</code></td><td>ClickHouse host, port, user, password, TLS flag, database name</td><td>No</td><td><code>dotenv_values</code></td></tr>
+<tr><td><code>config.toml</code></td><td>Everything else: cadence, overlap, horizon, rate budget, alert thresholds</td><td>Yes</td><td><code>tomllib</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<pre>    <span class="c"># Precedence: the `.env` file is the authoritative source for ClickHouse</span>
+    <span class="c"># connection values; the process environment only fills keys the file omits.</span>
+    <span class="c"># This is deliberate. On a host whose shell already exports these variables,</span>
+    <span class="c"># a value can be silently corrupted (for example a password containing `$`</span>
+    <span class="c"># mangled by shell expansion). Letting the file win keeps the documented</span>
+    <span class="c"># `.env` as the single source of truth and makes loading deterministic.</span>
+    file_env = dotenv_values(resolved_env_path) if resolved_env_path.exists() else {}
+    merged_env: dict[str, str | None] = {
+        key: os.environ[key] for key in _CLICKHOUSE_ENV_KEYS if key in os.environ
+    }
+    merged_env.update(file_env)</pre>
+
+<div class="box why"><span class="k">Why the file beats the environment</span>
+<p>This is backwards from the usual convention, where an exported shell variable overrides
+a file. The reason is given in the comment: a password containing a dollar sign gets eaten
+by shell expansion, and the resulting failure looks like a wrong password rather than a
+mangled one. Making the file authoritative means "what is in <code>.env</code> is what the
+service uses", with no invisible third party.</p></div>
+
+<h3>What each setting actually changes</h3>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Setting</th><th>Value in <code>config.toml</code></th><th>Turning it up</th><th>Turning it down</th></tr></thead>
+<tbody>
+<tr><td><code>poll_interval_sec</code></td><td>1800 (30 min)</td><td>Fewer requests; more risk of falling behind after a stall</td><td>Fresher data; a sweep must still finish before the next tick</td></tr>
+<tr><td><code>overlap_candles</code></td><td>5</td><td>More protection against a late-arriving or corrected candle; more duplicate rows for ClickHouse to merge away</td><td>Fewer duplicates; a boundary minute could be missed</td></tr>
+<tr><td><code>rest_horizon_candles</code></td><td>5000</td><td>Requests reach further back than Hyperliquid serves, so pagination stops early anyway</td><td>The service voluntarily gives up recoverable history</td></tr>
+<tr><td><code>weight_budget_per_min</code></td><td>1000</td><td>Faster sweeps; above roughly 1200 the exchange starts refusing requests</td><td>Slower sweeps; a large universe may not finish inside one interval</td></tr>
+<tr><td><code>symbols_mode</code></td><td><code>"all"</code></td><td colspan="2"><code>"all"</code> takes every active perpetual; <code>"allowlist"</code> takes only the names in <code>symbols_allowlist</code>, and fails loudly if one of them is not currently active</td></tr>
+<tr><td><code>initial_backfill_start_time_utc</code></td><td><code>""</code></td><td colspan="2">Empty means "start at the horizon". A date is clamped forward to the horizon, with a warning &mdash; it can never conjure older data</td></tr>
+<tr><td><code>batch_insert_max_rows</code></td><td>100000</td><td>Fewer, larger HTTP inserts</td><td>More, smaller inserts; more ClickHouse parts to merge</td></tr>
+<tr><td><code>alert_warn_min</code> &hellip; <code>alert_critical_min</code></td><td>60 / 720 / 2880 / 4320</td><td colspan="2">Only affects the wording of the quality report. Nothing in the ingestion path reads them</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box warn"><span class="k">Trap: the critical threshold is not arbitrary</span>
+<p><code>alert_critical_min = 4320</code> is 72 hours. The recoverable horizon is 4,999
+minutes, or 83.3 hours. The alarm is set to fire about eleven hours <em>before</em> the
+oldest missing minute becomes permanently unrecoverable. If you raise
+<code>rest_horizon_candles</code> or lower it, this threshold should move with it;
+nothing in the code enforces that relationship.</p></div>
+
+<div class="box def"><span class="k">Where the project root comes from</span>
+<p><code>PROJECT_ROOT = Path(__file__).resolve().parents[2]</code> in
+<code>config.py</code> walks up from <code>src/hyperliquid_candles/config.py</code> to the
+repository root, so commands work from any working directory. The environment variable
+<code>HL_DATA_DIR</code> relocates writable files (logs, and an optional overriding
+<code>config.toml</code>); the Docker image sets it to <code>/data</code>. It is read from
+the process environment, not from <code>.env</code>, because the loader must know where
+writable files live before it can read any file.</p></div>
+
+<h2 id="entry"><span class="sec-no">03</span>The three commands and the loop</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Command</th><th>Runs</th><th>Use it for</th></tr></thead>
+<tbody>
+<tr><td><code>hyperliquid-candles</code></td><td><code>app.main()</code> &rarr; <code>run_scheduler()</code></td><td>The long-lived service. One cycle immediately, then forever on the configured cadence</td></tr>
+<tr><td><code>hyperliquid-candles-run-once</code></td><td><code>scripts_run_once.main()</code> &rarr; <code>run_once()</code></td><td>Exactly one cycle, then exit. For cron, systemd timers, or debugging</td></tr>
+<tr><td><code>hyperliquid-candles-quality</code></td><td><code>quality.checks.main()</code></td><td>Print a plain-text health report. Reads only; never writes candles</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>scripts/run_once.py</code> and <code>scripts/run_quality_report.py</code> are
+three-line wrappers around the same functions, for running from a checkout without
+installing the console commands. <code>main.py</code> at the repository root is the same
+idea for the scheduler.</p>
+
+<h3><code>run_scheduler</code> &mdash; sleep, but stay interruptible</h3>
+
+<pre>    while not stop_requested:
+        try:
+            cycle_callback()
+        except Exception:
+            <span class="c"># A single cycle failure (network blip, transient ClickHouse error)</span>
+            <span class="c"># must not kill the long-running loop. Log it and continue to the</span>
+            <span class="c"># next scheduled tick; ClickHouse rows remain the source of truth, so</span>
+            <span class="c"># the next cycle recovers any missed window from stored watermarks.</span>
+            LOGGER.exception("Ingestion cycle failed; continuing to next cycle")
+        jitter_seconds = random.uniform(
+            0, min(30, settings.ingestion.poll_interval_sec / 10)
+        )
+        sleep_seconds = settings.ingestion.poll_interval_sec + jitter_seconds
+        LOGGER.info("Sleeping %.1f seconds before next ingestion cycle", sleep_seconds)
+
+        deadline = time.monotonic() + sleep_seconds
+        while not stop_requested and time.monotonic() &lt; deadline:
+            <span class="c"># The clock advances between the loop test and this line, so the</span>
+            <span class="c"># remaining time can already be negative. `time.sleep` raises on a</span>
+            <span class="c"># negative argument, which would kill the service loop, so clamp it.</span>
+            remaining_seconds = deadline - time.monotonic()
+            time.sleep(max(0.0, min(1.0, remaining_seconds)))</pre>
+
+<div class="box gist"><span class="k">In plain words</span>
+<p>Do the work, write down anything that went wrong, then nap in one-second pieces so a
+shutdown signal is noticed within a second rather than half an hour later.</p></div>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> the settings, and a function to call each cycle.
+<b>Output:</b> nothing; it returns only when a stop signal arrives.
+<b>Role:</b> the outer shell of the long-running service.</p></div>
+
+<div class="box why"><span class="k">Why the sleep is chopped into one-second slices</span>
+<p><code>signal.signal</code> hands the handler a flag, but a single
+<code>time.sleep(1800)</code> would not check that flag until it finished. Slicing the wait
+means <code>docker compose down</code> or Ctrl-C is honoured in about a second, and the
+container is not killed by force. <code>time.monotonic()</code> is used rather than wall
+clock time so that a system clock adjustment cannot make the sleep last forever.</p></div>
+
+<div class="box why"><span class="k">Why the jitter</span>
+<p><code>random.uniform(0, min(30, interval/10))</code> adds up to thirty seconds of random
+delay. If several copies of this service (or several services on one machine) restarted at
+the same instant, they would otherwise stay in lockstep and hit the exchange in bursts
+forever. The jitter breaks that alignment. The hard cap of thirty seconds is written
+inline rather than being a setting.</p></div>
+
+<h2 id="universe"><span class="sec-no">04</span>Choosing which markets to collect</h2>
+
+<pre>def active_perp_symbols(meta_response: dict[str, Any]) -&gt; tuple[str, ...]:
+    <span class="c">"""Return active perpetual symbols from a Hyperliquid `meta` response.</span>
+
+<span class="c">    Hyperliquid names perpetual markets in `universe`. Delisting flags are not</span>
+<span class="c">    always present, so the parser treats missing flags as active.</span>
+<span class="c">    """</span>
+    raw_universe = meta_response.get("universe", [])
+    if not isinstance(raw_universe, list):
+        raise ValueError("Hyperliquid meta response has no universe list")
+
+    symbols: list[str] = []
+    for item in raw_universe:
+        if not isinstance(item, dict):
+            continue
+        symbol = item.get("name")
+        is_delisted = bool(item.get("isDelisted", False))
+        if isinstance(symbol, str) and symbol and not is_delisted:
+            symbols.append(symbol)
+
+    return tuple(sorted(set(symbols)))</pre>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> the JSON object Hyperliquid returns for a <code>meta</code> request.
+<b>Output:</b> a sorted tuple of market names with no duplicates.
+<b>Role:</b> decides the work list for the whole cycle.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; live call, 10 August 2026</span>
+<div class="io">
+<div><span class="lab">in &mdash; meta_response["universe"]</span>
+<pre>232 entries, exchange order:
+BTC, ETH, ATOM, MATIC, DYDX, ...
+
+one entry:
+{"szDecimals": 5,
+ "name": "BTC",
+ "maxLeverage": 40,
+ "marginTableId": 56}
+
+55 entries carry "isDelisted"</pre></div>
+<div><span class="lab">out &mdash; active_perp_symbols(meta)</span>
+<pre>177 symbols, alphabetical:
+('0G', '2Z', 'AAVE', 'ACE',
+ 'ADA', 'AERO', 'AIXBT',
+ 'ALGO', ...)
+
+232 - 55 = 177   &lt;- every flagged
+                    entry was delisted</pre></div>
+</div>
+<p>The database holds 180 symbols but only 177 are active today. The extra three are
+markets that were delisted after their rows were collected; their history stays, but the
+service no longer asks for updates on them.</p></div>
+
+<div class="box why"><span class="k">Why sorting matters more than it looks</span>
+<p>The exchange returns markets in its own order, starting with BTC. Sorting makes each
+cycle deterministic: the same universe produces the same work order, so log files from two
+cycles line up and can be compared line by line. <code>set()</code> before
+<code>sorted()</code> also means a repeated name in the response cannot cause the same
+market to be fetched twice.</p></div>
+
+<div class="box warn"><span class="k">Trap: a missing flag means active</span>
+<p><code>item.get("isDelisted", False)</code> treats an absent flag as "still trading".
+That is the safe default here &mdash; collecting a market you did not need costs one small
+request, whereas silently dropping a live market loses data you can never recover. But it
+does mean that if Hyperliquid ever renames the field, every delisted market quietly comes
+back into the work list.</p></div>
+
+<div class="box def"><span class="k">Allowlist mode fails loudly</span>
+<p><code>select_symbols</code> in allowlist mode raises <code>ValueError</code> if any
+requested name is not currently active. A typo in <code>config.toml</code> stops the whole
+cycle rather than silently collecting three markets when you asked for four. Verified
+live: <code>select_symbols(meta, "allowlist", ("BTC", "ETH"))</code> returned
+<code>('BTC', 'ETH')</code>.</p></div>
+
+<h2 id="windows"><span class="sec-no">05</span>Time arithmetic</h2>
+
+<p>Every timestamp inside the service is an integer: Unix epoch milliseconds, meaning the
+number of milliseconds since midnight UTC on 1 January 1970. Conversion to a Python
+<code>datetime</code> happens only at the ClickHouse boundary. Integers cannot drift, cannot
+carry a surprise timezone, and compare exactly.</p>
+
+<h3><code>last_closed_open_ms</code> &mdash; never store a bar that is still forming</h3>
+
+<pre>def last_closed_open_ms(now_ms: int | None = None) -&gt; int:
+    <span class="c">"""Return the open time of the latest fully closed 1-minute candle."""</span>
+    effective_now_ms = now_ms
+    if effective_now_ms is None:
+        effective_now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+    current_minute_open_ms = effective_now_ms // INTERVAL_MS * INTERVAL_MS
+    return current_minute_open_ms - INTERVAL_MS</pre>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$t_{\text{last}} \;=\; \left\lfloor \frac{t_{\text{now}}}{\Delta} \right\rfloor \Delta \;-\; \Delta$$</p>
+<p class="fnote">$t_{\text{now}}$ is the current time in Unix epoch milliseconds.
+$\Delta = 60{,}000$ is one minute in milliseconds, the constant
+<code>INTERVAL_MS</code>. The floor bars $\lfloor \cdot \rfloor$ mean "round down to a whole
+number", so $\lfloor t_{\text{now}}/\Delta \rfloor \Delta$ is the start of the minute we
+are currently inside. Subtracting one more $\Delta$ steps back to the minute that has
+already finished. $t_{\text{last}}$ is the newest candle open time the service will ever
+request.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; real clock</span>
+<div class="io">
+<div><span class="lab">in &mdash; now_ms</span>
+<pre>1786402307206
+= 2026-08-10T22:51:47.206Z</pre></div>
+<div><span class="lab">out &mdash; last_closed_open_ms</span>
+<pre>1786402200000
+= 2026-08-10T22:50:00Z   &lt;- not 22:51
+
+check: 1786402307206 // 60000
+       = 29773371
+       29773371 * 60000
+       = 1786402260000  (22:51:00)
+       minus 60000
+       = 1786402200000  (22:50:00)</pre></div>
+</div></div>
+
+<div class="box warn"><span class="k">Trap: this single line is what keeps the data honest</span>
+<p>At 22:51:47 the 22:51 candle exists at the exchange, but its high, low, close and volume
+are still changing. If the service stored it, the database would contain a bar whose
+numbers depend on the moment you happened to ask, and a later research query would see a
+"22:51 close" that was never a real closing price. Anyone testing a trading rule on that
+data would be reading a price that was not knowable at the time &mdash; the classic
+look-ahead mistake. Subtracting one interval removes the possibility entirely: only
+finished minutes are ever written.</p></div>
+
+<h3><code>earliest_open_ms_for_candle_count</code> &mdash; the fencepost</h3>
+
+<pre>    if candle_count &lt;= 0:
+        raise ValueError("candle_count must be positive")
+    if interval_ms &lt;= 0:
+        raise ValueError("interval_ms must be positive")
+    return last_open_ms - (candle_count - 1) * interval_ms</pre>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$t_{\text{floor}} \;=\; t_{\text{last}} \;-\; (N-1)\,\Delta$$</p>
+<p class="fnote">$N$ is <code>rest_horizon_candles</code>, the number of candle slots in the
+window, counting both ends. $t_{\text{floor}}$ is the open time of the oldest one. The
+$N-1$ is the fencepost correction: five fence posts have four gaps between them, and five
+candles have four intervals between their opening times.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the horizon on 10 August 2026</span>
+<div class="io">
+<div><span class="lab">in</span>
+<pre>last_open_ms = 1786402200000
+             = 2026-08-10T22:50:00Z
+candle_count = 5000
+interval_ms  = 60000</pre></div>
+<div><span class="lab">out</span>
+<pre>1786102260000
+= 2026-08-07T11:31:00Z
+
+span = 4,999 minutes
+     = 83.3 hours
+     = 3.47 days   &lt;- not 3.47 + 1 minute</pre></div>
+</div>
+<p>Writing $N\Delta$ instead of $(N-1)\Delta$ would ask for 5,001 slots and reach one
+minute past what the exchange serves. The repository journal records this as a real
+correction made on 13 July 2026.</p></div>
+
+<h3><code>build_incremental_work_items</code> &mdash; one window per stored market</h3>
+
+<pre>    for symbol in symbols:
+        watermark_ms = watermarks_ms.get(symbol)
+        if watermark_ms is None:
+            continue
+
+        overlapped_start_ms = watermark_ms - overlap_candles * interval_ms
+        start_ms = max(overlapped_start_ms, horizon_floor_ms)
+        if start_ms &gt; last_closed_ms:
+            continue
+
+        work_items.append(
+            WorkItem(symbol=symbol, start_ms=start_ms, end_ms=last_closed_ms)
+        )</pre>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$s \;=\; \max\!\bigl(w - k\Delta,\; t_{\text{floor}}\bigr), \qquad e \;=\; t_{\text{last}}$$</p>
+<p class="fnote">$w$ is the watermark, the newest open time already stored for that market.
+$k$ is <code>overlap_candles</code> (5 by default), so $w - k\Delta$ deliberately steps
+back five minutes into data already held. $t_{\text{floor}}$ is the horizon from the
+previous formula, so the $\max$ refuses to ask for anything the exchange cannot serve.
+$[s, e]$ is the inclusive window this cycle will request for that market.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; four watermarks, four different outcomes</span>
+<div class="io stack">
+<div><span class="lab">in &mdash; watermarks_ms, with last_closed = 2026-08-10T22:50:00Z</span>
+<pre>BTC    2026-08-10T22:20:00Z    30 minutes behind, normal
+ETH    2026-06-02T12:10:00Z    ten weeks behind, far outside the horizon
+SOL    None                    never stored
+DOGE   2026-08-10T22:50:00Z    completely up to date</pre></div>
+<div><span class="lab">out &mdash; build_incremental_work_items(...)</span>
+<pre>BTC    start 22:15:00           end 22:50:00     36 slots   &lt;- 30 wanted + 5 overlap + 1 fencepost
+ETH    start 2026-08-07T11:31   end 22:50:00   5000 slots   &lt;- clamped to the horizon; ten weeks are gone
+DOGE   start 22:45:00           end 22:50:00      6 slots   &lt;- pure overlap, no new data expected
+SOL    (no work item)                                       &lt;- handled by phase 1 instead</pre></div>
+</div></div>
+
+<div class="box why"><span class="k">Why refetch five minutes you already have</span>
+<p>Two reasons. The exchange can revise a candle briefly after it closes, and a cycle can
+die between fetching and inserting. Re-requesting the last five minutes covers both, and
+costs nothing because the database key makes repeats harmless. The price is a small number
+of duplicate rows waiting to be merged: measured at 4,965 out of 13 million, or 0.04 per
+cent.</p></div>
+
+<h2 id="client"><span class="sec-no">06</span>Talking to Hyperliquid</h2>
+
+<h3><code>candle_request_weight</code> &mdash; guessing the bill before you order</h3>
+
+<p>Hyperliquid does not count requests; it counts <b>weight</b>, a cost number attached to
+each call. The published ceiling is 1,200 weight per minute per internet address. A
+<code>candleSnapshot</code> call costs a base of 20 plus one more for every 60 candles it
+returns.</p>
+
+<pre>    requested_slots = (end_ms - start_ms) // INTERVAL_MS + 1
+    return BASE_INFO_WEIGHT + requested_slots // ITEM_WEIGHT_BLOCK</pre>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$n \;=\; \frac{e-s}{\Delta} + 1, \qquad W \;=\; 20 \;+\; \left\lfloor \frac{n}{60} \right\rfloor$$</p>
+<p class="fnote">$s$ and $e$ are the requested window bounds in milliseconds, $n$ is the
+number of minute slots asked for, and $W$ is the estimated weight. The constant 20 is
+<code>BASE_INFO_WEIGHT</code> and the 60 is <code>ITEM_WEIGHT_BLOCK</code>. The exchange
+charges on candles <em>returned</em>, which is never more than the number requested, so
+this estimate always errs on the expensive side.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the cost curve</span>
+<div class="io">
+<div><span class="lab">in &mdash; requested slots</span>
+<pre>    1
+   35
+   60
+  120
+ 5000</pre></div>
+<div><span class="lab">out &mdash; candle_request_weight</span>
+<pre>   20
+   20   &lt;- a normal catch-up window is free above the base
+   21
+   22
+  103   &lt;- a cold-start backfill costs five times as much</pre></div>
+</div>
+<p>A full sweep of the 177 active markets at a normal 35-minute window costs
+$177 \times 20 = 3{,}540$ weight. At the configured budget of 1,000 per minute that is
+about 3.5 minutes of work inside a 30-minute cycle.</p></div>
+
+<h3><code>TokenBucket</code> &mdash; a tap that refills at a fixed rate</h3>
+
+<pre>    def wait_for(self, weight: float) -&gt; None:
+        <span class="c">"""Block until at least `weight` request tokens are available."""</span>
+        if weight &lt;= 0:
+            raise ValueError("weight must be positive")
+
+        while True:
+            self._refill()
+            if self._tokens &gt;= weight:
+                self._tokens -= weight
+                return
+
+            missing_tokens = weight - self._tokens
+            tokens_per_second = self.tokens_per_minute / 60.0
+            time.sleep(missing_tokens / tokens_per_second)</pre>
+
+<div class="box gist"><span class="k">In plain words</span>
+<p>Think of a bucket that fills with coins at a steady rate. Every request must pay coins
+before it is sent. If the bucket is short, the caller waits exactly long enough for the
+missing coins to drip in.</p></div>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$T \leftarrow \min\!\left(C,\; T + (\tau - \tau_{\text{prev}})\frac{B}{60}\right), \qquad
+\text{wait} \;=\; \frac{W - T}{B/60}$$</p>
+<p class="fnote">$T$ is the tokens currently in the bucket, $C$ its capacity (equal to $B$
+unless set otherwise), $B$ is <code>weight_budget_per_min</code>, $\tau$ is the current
+reading of a steadily increasing clock in seconds and $\tau_{\text{prev}}$ the previous
+reading, and $W$ is the weight this request needs. The first expression is the refill: time
+elapsed times the per-second rate, capped at capacity. The second is how long to sleep when
+the bucket is short.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; measured, not estimated</span>
+<div class="io">
+<div><span class="lab">in</span>
+<pre>TokenBucket(tokens_per_minute=1000)
+60 consecutive wait_for(20) calls
+total weight = 1200</pre></div>
+<div><span class="lab">out</span>
+<pre>elapsed 12.00 seconds
+
+check: bucket starts full at 1000.
+       200 weight must be earned at
+       1000/60 = 16.67 per second
+       200 / 16.67 = 12.0 s  &lt;- exact</pre></div>
+</div></div>
+
+<div class="box why"><span class="k">Why the weight is reserved before sending, not after</span>
+<p>The client calls <code>rate_limiter.wait_for(request_weight)</code> inside the retry
+wrapper, before the HTTP call. Charging afterwards, once the true response size is known,
+would let a cold start fire dozens of requests instantly and only then discover it had
+overspent. Reserving first means the very first burst is already paced.</p></div>
+
+<div class="box flag"><span class="k">The weakness, stated honestly</span>
+<p>The bucket starts <em>full</em>. Its capacity defaults to one full minute of budget, so
+in the first minute of a fresh process it can spend capacity plus refill: 1,000 + 1,000 =
+2,000 weight, against an exchange ceiling of 1,200. The retry logic absorbs the resulting
+refusals, but the guarantee is not tight. The project's own <code>notes.md</code> records
+this and suggests capping capacity so that capacity plus budget stays under 1,200. It has
+not been done.</p></div>
+
+<h3><code>_post_info_with_retry</code> &mdash; what counts as worth retrying</h3>
+
+<pre>        @retry(
+            retry=retry_if_exception_type((httpx.HTTPError, RuntimeError)),
+            stop=stop_after_attempt(self.max_retries),
+            wait=wait_exponential_jitter(initial=1, max=30),
+            reraise=True,
+        )
+        def _send() -&gt; Any:
+            <span class="c"># Reserve the full estimated weight before each attempt. Charging</span>
+            <span class="c"># response-item weight afterwards permits an initial burst that can</span>
+            <span class="c"># exceed the configured per-minute budget.</span>
+            self.rate_limiter.wait_for(request_weight)
+            response = self._client.post(self.base_url, json=payload)
+            if response.status_code == 429 or response.status_code &gt;= 500:
+                raise RuntimeError(
+                    f"Transient Hyperliquid status {response.status_code}: {response.text[:200]}"
+                )
+            response.raise_for_status()
+            return response.json()</pre>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> a JSON request body and an estimated weight.
+<b>Output:</b> the decoded JSON response.
+<b>Role:</b> the single door through which every exchange call passes.</p>
+<p>Status 429 means "too many requests" and 500 and above mean "the server broke". Both are
+turned into a <code>RuntimeError</code>, which the retry decorator recognises. Anything
+else &mdash; a 400 for a malformed request, a 404 &mdash; goes through
+<code>raise_for_status()</code> as an <code>httpx.HTTPStatusError</code>, and although that
+is a subclass of <code>httpx.HTTPError</code> and therefore also retried, no amount of
+retrying will fix it, so it eventually surfaces.</p></div>
+
+<div class="box warn"><span class="k">Trap: the weight is paid on every attempt</span>
+<p><code>wait_for</code> sits inside <code>_send</code>, not outside it. A request that is
+refused four times pays four times. That is the correct behaviour &mdash; the exchange
+charges for refused calls too &mdash; but it means a struggling connection burns budget
+that healthy markets then have to wait for.</p></div>
+
+<h2 id="parse"><span class="sec-no">07</span>Turning a payload into a candle</h2>
+
+<pre>    if str(payload["i"]) != INTERVAL_1M:
+        raise ValueError(f"Expected 1m candle interval, received {payload['i']!r}")
+
+    candle = Candle(
+        symbol=str(payload["s"]),
+        open_time_ms=int(payload["t"]),
+        close_time_ms=int(payload["T"]),
+        open=float(payload["o"]),
+        high=float(payload["h"]),
+        low=float(payload["l"]),
+        close=float(payload["c"]),
+        volume=float(payload["v"]),
+        trades=int(payload.get("n", 0)),
+    )
+    if candle.open_time_ms % INTERVAL_MS != 0:
+        raise ValueError("Candle open time is not aligned to a 1-minute boundary")
+    if candle.close_time_ms != candle.open_time_ms + INTERVAL_MS - 1:
+        raise ValueError("Candle close time does not match a 1-minute interval")
+    if candle.high &lt; max(candle.open, candle.low, candle.close):
+        raise ValueError("Candle high is below another OHLC price")
+    if candle.low &gt; min(candle.open, candle.high, candle.close):
+        raise ValueError("Candle low is above another OHLC price")
+    if candle.volume &lt; 0:
+        raise ValueError("Candle volume must be non-negative")
+    if candle.trades &lt; 0:
+        raise ValueError("Candle trade count must be non-negative")
+    return candle</pre>
+
+<div class="box gist"><span class="k">In plain words</span>
+<p>Rename the exchange's one-letter fields into readable ones, and refuse anything that is
+not a well-formed one-minute bar before it can reach the database.</p></div>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> one dictionary straight from the JSON response.
+<b>Output:</b> a frozen <code>Candle</code> object, or a <code>ValueError</code>.
+<b>Role:</b> the boundary between "whatever the exchange sent" and "what this project is
+willing to store".</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; live BTC payload, 10 August 2026</span>
+<div class="io stack">
+<div><span class="lab">in &mdash; one element of the candleSnapshot response</span>
+<pre>{"t": 1786402080000, "T": 1786402139999, "s": "BTC", "i": "1m",
+ "o": "63972.0", "c": "63976.0", "h": "63976.0", "l": "63972.0",
+ "v": "1.29563", "n": 57}</pre></div>
+<div><span class="lab">out &mdash; parse_candle(payload)</span>
+<pre>Candle(symbol='BTC', open_time_ms=1786402080000, close_time_ms=1786402139999,
+       open=63972.0, high=63976.0, low=63972.0, close=63976.0,
+       volume=1.29563, trades=57)
+
+check: 1786402139999 - 1786402080000 = 59,999 ms   &lt;- exactly one minute minus 1 ms
+check: high 63976 is not below max(63972, 63972, 63976)   -> passes</pre></div>
+</div>
+<p>Prices and volume arrive as text, not numbers &mdash; <code>"63972.0"</code>, not
+<code>63972.0</code>. That is deliberate on Hyperliquid's side: text cannot lose precision
+in transit. The parser converts to Python <code>float</code>, matching the
+<code>Float64</code> column type.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; a rejection, forced by hand</span>
+<div class="io">
+<div><span class="lab">in &mdash; same payload with h changed</span>
+<pre>{..., "o": "63972.0",
+      "h": "1.0",
+      "l": "63972.0",
+      "c": "63976.0", ...}</pre></div>
+<div><span class="lab">out</span>
+<pre>ValueError: Candle high is below
+another OHLC price</pre></div>
+</div>
+<p>The failure is raised per market inside <code>_fetch_store_status</code>, so one
+malformed market is recorded as failed and the other 176 still get written.</p></div>
+
+<div class="box why"><span class="k">Why check things that "cannot" be wrong</span>
+<p>The high can never be below the open in a correct bar, so these checks look like
+paranoia. Their real job is to catch a change at the exchange &mdash; a renamed field, a
+new interval string, a units change &mdash; on the day it happens, as a loud per-market
+failure, rather than months later as a silently corrupted table that every downstream study
+has already used.</p></div>
+
+<div class="box warn"><span class="k">Trap: trades = 0 is normal, not missing data</span>
+<p>Hyperliquid emits a candle for a minute in which nothing traded, carrying the previous
+price forward so that open, high, low and close are all equal and volume is zero. The
+parser accepts these, correctly. Measured on the live table: <b>2,380,174 of 13,002,252
+rows, or 18.3 per cent, have zero trades.</b> Any volatility or liquidity study that treats
+those rows as real price observations will understate movement. This is a property of the
+data, not a bug in the collector.</p></div>
+
+<div class="box def"><span class="k"><code>dedupe_by_symbol_open_time</code></span>
+<p><b>Input:</b> candles from several pages, possibly overlapping.
+<b>Output:</b> one candle per <code>(symbol, open_time_ms)</code> pair, sorted.
+<b>Role:</b> stops the same minute being sent to the database twice within a single
+request. Verified: six rows in, three rows out. The dictionary assignment keeps the
+last one seen, and since all copies come from the same source in the same cycle, which one
+wins does not matter.</p></div>
+
+<h2 id="fetch"><span class="sec-no">08</span>Paging backwards</h2>
+
+<p>This is the single idea that makes the project work, and it is the opposite of what
+most people write first.</p>
+
+<div class="box why"><span class="k">Why forward paging cannot work here</span>
+<p>Ask Hyperliquid for a window wider than it can serve, and it does <em>not</em> return
+the oldest part and stop. It returns the part nearest the <b>end</b> of your window and
+silently drops the oldest overflow. So if you ask for "everything from ten weeks ago until
+now" and then try to advance your start time page by page, every page returns the same
+recent chunk near the end and you never move. The fix is to walk the <em>end</em> of the
+window backwards instead, peeling off the next-oldest chunk each time.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the truncation, probed live</span>
+<div class="io stack">
+<div><span class="lab">in &mdash; one raw candleSnapshot request for BTC</span>
+<pre>startTime  2026-08-06T18:50:00Z
+endTime    2026-08-10T22:50:00Z
+slots requested   6,001</pre></div>
+<div><span class="lab">out &mdash; the response</span>
+<pre>rows returned     5,217
+oldest returned   2026-08-07T07:54:00Z   &lt;- 784 slots later than asked for
+newest returned   2026-08-10T22:50:00Z   &lt;- exactly the end requested
+
+784 slots were dropped, and every one of them came off the OLD end.</pre></div>
+</div>
+<p>Two things worth noticing. The endpoint returned 5,217 rows, more than the documented
+5,000 &mdash; the real horizon is a little more generous than the promise, which is why the
+code treats 5,000 as a conservative setting rather than a hard fact. And the loss is
+entirely at the old end, which is the behaviour the whole module is built around.</p></div>
+
+<pre>    fetched_rows: list[Candle] = []
+    cursor_end_ms = end_ms
+
+    while cursor_end_ms &gt;= start_ms:
+        page = source.fetch_candles(
+            symbol=symbol, start_ms=start_ms, end_ms=cursor_end_ms
+        )
+        if not page:
+            break
+
+        fetched_rows.extend(page)
+        oldest_open_ms = min(candle.open_time_ms for candle in page)
+
+        <span class="c"># The page already reaches the requested start, so the window is covered.</span>
+        if oldest_open_ms &lt;= start_ms:
+            break
+
+        <span class="c"># Step the cursor to just before the oldest candle we just received so</span>
+        <span class="c"># the next request peels off the next-older chunk.</span>
+        next_cursor_end_ms = oldest_open_ms - interval_ms
+
+        <span class="c"># Defensive guard: if the cursor did not move backward, the API is not</span>
+        <span class="c"># honouring endTime as expected. Stop rather than loop forever.</span>
+        if next_cursor_end_ms &gt;= cursor_end_ms:
+            break
+
+        cursor_end_ms = next_cursor_end_ms
+
+    return dedupe_by_symbol_open_time(fetched_rows)</pre>
+
+<div class="box gist"><span class="k">In plain words</span>
+<p>Ask for the window. Look at the oldest bar you got back. Ask again, this time ending one
+minute before that. Repeat until you either reach the start you wanted or the exchange
+stops giving you anything new.</p></div>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> a market name, an inclusive window in milliseconds, and any object with a
+<code>fetch_candles</code> method.
+<b>Output:</b> every candle in that window the exchange still exposes, deduplicated and
+sorted. Possibly an empty list.
+<b>Role:</b> the one fetch primitive. Initial backfill, incremental catch-up and gap repair
+all go through it, so there is exactly one place where pagination can be right or
+wrong.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the same window through the fetcher</span>
+<div class="io">
+<div><span class="lab">in &mdash; 35-slot window, inside the horizon</span>
+<pre>symbol   BTC
+start    2026-08-10T22:16:00Z
+end      2026-08-10T22:50:00Z</pre>
+<span class="lab">in &mdash; 6001-slot window, past the horizon</span>
+<pre>symbol   BTC
+start    2026-08-06T18:50:00Z
+end      2026-08-10T22:50:00Z</pre></div>
+<div><span class="lab">out</span>
+<pre>35 rows, 0.84 s, one request
+oldest 22:16:00, newest 22:50:00
+&lt;- the common case: one round trip</pre>
+<span class="lab">out</span>
+<pre>5,217 rows, 2.18 s
+oldest 2026-08-07T07:54:00Z
+newest 2026-08-10T22:50:00Z
+&lt;- same rows as the raw probe; the loop
+   stopped when the cursor stopped moving</pre></div>
+</div></div>
+
+<div class="box why"><span class="k">Why termination depends on the cursor, never on page size</span>
+<p>A tempting stopping rule is "stop when a page comes back smaller than the maximum". That
+breaks the moment the exchange changes its page size, and it is wrong for a market that
+genuinely has fewer bars. This loop stops on three conditions instead, all of them about
+progress: the page was empty, the page reached the requested start, or the cursor failed to
+move backwards. The third is the one that matters &mdash; if the endpoint ever ignored
+<code>endTime</code>, every page would be identical and a size-based rule would spin
+forever.</p></div>
+
+<div class="box warn"><span class="k">Trap: the loop can return fewer rows than asked for, silently</span>
+<p>When the window reaches past the horizon, the loop simply stops and returns what exists.
+There is no error and no warning. That is intentional &mdash; a ten-week-old gap is not
+recoverable and complaining about it every cycle would be noise &mdash; but it means
+"fetched 40 rows" never proves "40 rows existed". The per-market status row records
+<code>requested_start</code> and <code>effective_start</code> separately so the difference
+stays visible afterwards.</p></div>
+
+<h2 id="storage"><span class="sec-no">09</span>Writing and reading ClickHouse</h2>
+
+<h3>The table, and why re-inserting is safe</h3>
+
+<pre>CREATE TABLE IF NOT EXISTS {database}.candles_1m
+(
+    symbol      LowCardinality(String),
+    open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
+    open        Float64               CODEC(Delta, ZSTD(12)),
+    high        Float64               CODEC(Delta, ZSTD(12)),
+    low         Float64               CODEC(Delta, ZSTD(12)),
+    close       Float64               CODEC(Delta, ZSTD(12)),
+    volume      Float64               CODEC(ZSTD(12)),
+    trades      UInt32                CODEC(T64, ZSTD(12)),
+    inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))
+)
+ENGINE = ReplacingMergeTree(inserted_at)
+PARTITION BY toYYYYMM(open_time)
+ORDER BY (symbol, open_time)
+SETTINGS index_granularity = 8192</pre>
+
+<div class="box def"><span class="k">Reading this DDL</span>
+<p><b>DDL</b> stands for data definition language &mdash; the SQL that creates tables.
+<b>ReplacingMergeTree(inserted_at)</b> is a ClickHouse table engine that, when two rows
+share the sorting key, eventually keeps the one with the larger <code>inserted_at</code>.
+The sorting key here is <code>(symbol, open_time)</code>, so one market-minute resolves to
+one row. <b>CODEC</b> chooses how a column is compressed before it is written.
+<b>Delta</b> stores each value as the difference from the previous one; <b>DoubleDelta</b>
+stores the difference of the differences, which is nearly free for evenly spaced
+timestamps; <b>T64</b> packs small integers together; <b>ZSTD(12)</b> is general-purpose
+compression at a high setting. <b>LowCardinality(String)</b> stores repeated strings as
+small numbers pointing into a dictionary &mdash; 180 market names repeated 13 million
+times compress to almost nothing.</p></div>
+
+<div class="box why"><span class="k">Why volume alone gets no delta encoding</span>
+<p>Prices move gradually minute to minute, so the difference between consecutive values is
+small and compresses well. Traded volume does not: it jumps between near zero and large
+values with no relationship to its neighbour, so a difference is as large as the original
+number and delta encoding makes the file bigger. The project measured this and recorded the
+result in <code>COMPRESSION_BENCHMARK.md</code>. Note that the compression choices are all
+lossless &mdash; the alternative of shrinking <code>volume</code> to a 32-bit float was
+rejected because it would quietly change the stored numbers.</p></div>
+
+<div class="box warn"><span class="k">Trap: "eventually" is doing real work in that sentence</span>
+<p>ReplacingMergeTree removes duplicates during background merges, on ClickHouse's
+schedule, not at insert time. Until then both rows are visible to a plain
+<code>SELECT</code>. On the live table right now that is 4,965 duplicate keys. Any research
+query must collapse them itself, with <code>FINAL</code> or with
+<code>argMax(column, inserted_at)</code> grouped by <code>(symbol, open_time)</code>. A
+naive <code>count()</code> or <code>avg()</code> over this table is slightly wrong.</p></div>
+
+<h3>Reading the watermarks</h3>
+
+<pre>def datetime_to_ms(value: datetime) -&gt; int:
+    <span class="c">"""Convert a ClickHouse datetime value to Unix epoch milliseconds.</span>
+
+<span class="c">    The `candles_1m` column is `DateTime64(3, 'UTC')`, which the driver normally</span>
+<span class="c">    returns as a timezone-aware UTC datetime. If a naive datetime is ever</span>
+<span class="c">    returned, it is interpreted as UTC rather than the host's local zone;</span>
+<span class="c">    otherwise `.timestamp()` would silently shift every watermark by the local</span>
+<span class="c">    UTC offset and corrupt the fetch window.</span>
+<span class="c">    """</span>
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return int(value.timestamp() * 1000)</pre>
+
+<div class="box warn"><span class="k">Trap: the naive-datetime guard is not decoration</span>
+<p>A Python datetime with no timezone attached is called <b>naive</b>. Calling
+<code>.timestamp()</code> on one makes Python assume the machine's local timezone. On a
+Toronto machine in summer that is four hours off. Every watermark would move four hours,
+every fetch window would start four hours late, and the service would quietly lose four
+hours of candles per market with no error anywhere. The two-line guard converts the
+assumption to UTC instead. Confirmed live: the driver does return aware datetimes, so the
+guard never fires &mdash; but it costs nothing and the failure it prevents is invisible.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; live watermark query</span>
+<div class="io">
+<div><span class="lab">in &mdash; SQL sent</span>
+<pre>SELECT symbol, max(open_time)
+       AS max_open_time
+FROM hyperliquid.candles_1m
+GROUP BY symbol</pre></div>
+<div><span class="lab">out &mdash; query_watermarks_ms(...)</span>
+<pre>180 entries, for example:
+'0G'    2026-08-09T18:54:00+00:00
+'2Z'    2026-08-09T18:54:00+00:00
+'AAVE'  2026-08-09T18:54:00+00:00</pre></div>
+</div>
+<p>No <code>FINAL</code> is needed here: duplicates cannot change a maximum.</p></div>
+
+<h3>Inserting in bounded chunks</h3>
+
+<pre>    total_inserted = 0
+    for chunk_start in range(0, len(candles), batch_max_rows):
+        chunk = candles[chunk_start : chunk_start + batch_max_rows]
+        rows = [candle_to_insert_row(candle) for candle in chunk]
+        client.insert(
+            table=f"{database}.candles_1m",
+            data=rows,
+            column_names=CANDLE_COLUMNS,
+        )
+        total_inserted += len(rows)
+
+    return total_inserted</pre>
+
+<div class="box def"><span class="k">What it does</span>
+<p><b>Input:</b> a list of parsed candles and a maximum chunk size.
+<b>Output:</b> the number of rows sent.
+<b>Role:</b> keeps one insert call, and one HTTP body, bounded regardless of how many
+candles a cold start produced.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; one row on the wire</span>
+<div class="io stack">
+<div><span class="lab">in &mdash; Candle</span>
+<pre>Candle(symbol='BTC', open_time_ms=1786402080000, close_time_ms=1786402139999,
+       open=63972.0, high=63976.0, low=63972.0, close=63976.0, volume=1.29563, trades=57)</pre></div>
+<div><span class="lab">out &mdash; candle_to_insert_row(candle)</span>
+<pre>('BTC',
+ datetime(2026, 8, 10, 22, 48, tzinfo=timezone.utc),
+ datetime(2026, 8, 10, 22, 48, 59, 999000, tzinfo=timezone.utc),
+ 63972.0, 63976.0, 63972.0, 63976.0, 1.29563, 57)</pre></div>
+</div>
+<p>This is the only place integers become datetimes, and both are timezone-aware. The
+<code>inserted_at</code> column is absent from the tuple; ClickHouse fills it with
+<code>now64(3)</code>, which is what makes ReplacingMergeTree able to pick a winner.</p></div>
+
+<div class="box flag"><span class="k">The weakness, stated honestly</span>
+<p>The function counts rows <em>sent</em>, and the cycle reports that number as
+<code>candles_inserted</code>. Because every cycle deliberately refetches five overlap
+minutes per market, roughly 885 of the rows in a 177-market cycle are already present.
+The live table bears this out: a real cycle recorded <b>6,693 candles inserted across 175
+markets</b>, about 38 per market, and the per-market rows show why &mdash; a window from
+15:30 to 16:07 is 38 inclusive minute slots, of which five are the deliberate overlap. The
+figure is a write count, not a growth count.</p></div>
+
+<h3>Connecting, and what counts as "not ready"</h3>
+
+<div class="box def"><span class="k"><code>wait_for_clickhouse</code></span>
+<p><b>Input:</b> connection settings and the backoff settings.
+<b>Output:</b> a connected client plus the server version, or an exception.
+<b>Role:</b> lets the container start before the database does.</p>
+<p>The distinction it draws is the interesting part. Network-shaped failures &mdash;
+"connection refused", "name or service not known", "temporary failure in name resolution"
+&mdash; are treated as "not ready yet" and retried forever with a doubling delay from 2
+seconds up to 60, plus up to one second of random jitter. Anything else, such as a wrong
+password or a missing grant, is wrapped in <code>ClickHouseConfigurationError</code> and
+raised immediately, because no amount of waiting will fix it.</p></div>
+
+<div class="box warn"><span class="k">Trap: the classification is done by reading text</span>
+<p><code>_looks_like_dependency_not_ready</code> lowercases the exception message and looks
+for known fragments. If the driver or the underlying HTTP library rewords its errors, a
+genuinely transient failure would be reclassified as a configuration error and the service
+would stop instead of waiting. This is fragile by nature; there is no error code to check
+because the failure happens below the database protocol.</p></div>
+
+<div class="box why"><span class="k">Why the client connects to no database in particular</span>
+<p><code>connect_clickhouse</code> deliberately omits the <code>database</code> argument.
+Every statement in the project writes the name out in full, as
+<code>hyperliquid.candles_1m</code>. That way a user who has rights on one database but
+cannot see the server default still connects cleanly, and <code>CREATE DATABASE</code> is
+attempted but forgiven if the grant is missing &mdash; <code>_ensure_database</code> catches
+ClickHouse error code 497 and carries on.</p></div>
+
+<h2 id="gaps"><span class="sec-no">10</span>Finding and repairing holes</h2>
+
+<p>A <b>gap</b> is one or more absent minutes between two stored candles for the same
+market. The detection is done in SQL, using a window function that looks at the previous
+row within each market.</p>
+
+<pre>SELECT
+    symbol,
+    prev_open AS gap_after,
+    open_time AS gap_before,
+    (toUnixTimestamp64Milli(open_time)
+      - toUnixTimestamp64Milli(prev_open)) / 60000 - 1 AS missing_minutes
+FROM
+(
+    SELECT
+        symbol,
+        open_time,
+        lagInFrame(open_time) OVER
+            (PARTITION BY symbol ORDER BY open_time) AS prev_open
+    FROM hyperliquid.candles_1m FINAL
+    WHERE open_time &gt;= toDateTime64(1786102260.0, 3, 'UTC')
+)
+WHERE prev_open != toDateTime64(0, 3)
+  AND (toUnixTimestamp64Milli(open_time)
+       - toUnixTimestamp64Milli(prev_open)) &gt; 60000
+ORDER BY symbol, gap_after</pre>
+
+<div class="box def"><span class="k">Reading this SQL</span>
+<p><code>lagInFrame(open_time) OVER (PARTITION BY symbol ORDER BY open_time)</code> means:
+sort each market's rows by time, and for every row give me the previous row's open time.
+<code>PARTITION BY symbol</code> stops one market's last row being compared with the next
+market's first. The outer <code>WHERE</code> keeps only rows whose neighbour is more than
+one minute away &mdash; those are the holes.</p></div>
+
+<div class="box def"><span class="k">The formula</span>
+<p>$$g \;=\; \frac{t_{\text{before}} - t_{\text{after}}}{\Delta} \;-\; 1$$</p>
+<p class="fnote">$t_{\text{after}}$ is the open time of the stored candle immediately
+<em>before</em> the hole (the column named <code>gap_after</code>) and
+$t_{\text{before}}$ the stored candle immediately <em>after</em> it (the column named
+<code>gap_before</code>). $\Delta$ is again 60,000 milliseconds. $g$ is the count of
+missing minutes strictly between the two. The minus one is the same fencepost correction as
+before: two candles ten minutes apart have nine minutes missing between them.</p></div>
+
+<div class="box warn"><span class="k">Trap: the column names read backwards</span>
+<p><code>gap_after</code> is the <em>earlier</em> timestamp and <code>gap_before</code> is
+the <em>later</em> one. They are named for the gap, not for each other: the gap comes
+<em>after</em> the first candle and <em>before</em> the second. In
+<code>_backfill_recoverable_gaps</code> they are passed as
+<code>start_ms=gap.gap_after_ms, end_ms=gap.gap_before_ms</code>, which is correct, but the
+line reads like a mistake at first glance. Anyone editing this should check the ordering
+before "fixing" it.</p></div>
+
+<div class="box why"><span class="k">Why the horizon filter is inside the subquery</span>
+<p><code>WHERE open_time &gt;= toDateTime64(horizon_floor, 3, 'UTC')</code> sits with the
+window function, not outside it. That lets ClickHouse skip whole monthly partitions, so the
+expensive <code>FINAL</code> read touches only the recent ones. It also means the query
+returns only gaps the exchange could still serve &mdash; asking to refetch a gap from ten
+weeks ago would spend request budget on data that no longer exists anywhere.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the live table</span>
+<div class="io">
+<div><span class="lab">in &mdash; the full gap query, no horizon filter</span>
+<pre>13,002,252 rows
+180 symbols
+2026-06-19 to 2026-08-09</pre></div>
+<div><span class="lab">out</span>
+<pre>gaps found         0
+missing minutes    0
+
+&lt;- fifty days of continuous
+   coverage for every market</pre></div>
+</div>
+<p>Zero is the honest answer here, not a placeholder. It also means the repair path in
+phase 3 currently does nothing on this instance, which is the desired steady state.</p></div>
+
+<div class="box flag"><span class="k">The weakness, stated honestly</span>
+<p>A detected gap is a <em>candidate</em>, not proof of a collection failure. Hyperliquid
+does not promise a candle for every minute of every market's life, particularly for a newly
+listed market before its first trade. Refetching the boundary window is harmless, but a
+gap can survive a successful repair and reappear in every future report. The module
+docstring says this plainly. There is also a blind spot at the horizon edge: the first row
+inside the filtered window has no previous row, so a gap that straddles the boundary is
+invisible to the recoverable query.</p></div>
+
+<h2 id="cycle"><span class="sec-no">11</span>One cycle end to end</h2>
+
+<p><code>run_ingestion_cycle</code> is the only function that knows the whole story. It
+runs three phases against the universe.</p>
+
+<div class="mermaid">
+flowchart TD
+  A["fetch_meta() and select_symbols()"] --> B["query_watermarks_ms()"]
+  B --> C{"watermark exists?"}
+  C -->|no| P1["Phase 1: _ingest_initial_symbol()"]
+  C -->|yes| P2["Phase 2: build_incremental_work_items()"]
+  P1 --> P3["Phase 3: _backfill_recoverable_gaps()"]
+  P2 --> P3
+  P3 --> M["insert_symbol_statuses() and insert_run_summary()"]
+</div>
+<p class="fnote">The diamond is the only branch in the cycle. Both paths converge on the
+same repair pass and the same metadata write.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Phase</th><th>Applies to</th><th>Window</th><th>Why it exists</th></tr></thead>
+<tbody>
+<tr><td>1. Initial backfill</td><td>Markets with no stored rows at all</td><td>From <code>initial_backfill_start_time_utc</code>, or the horizon, up to the last closed minute</td><td>A market listed since the last cycle would otherwise never get a first row</td></tr>
+<tr><td>2. Incremental catch-up</td><td>Markets with a watermark</td><td>Watermark minus five minutes, clamped to the horizon</td><td>The normal path, run every cycle for every market</td></tr>
+<tr><td>3. Gap repair</td><td>Any tracked market with an internal hole inside the horizon</td><td>The two candles bracketing the hole, inclusive</td><td>Self-healing after downtime or a partly failed cycle</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Failure is isolated per market</h3>
+
+<pre>    except Exception as exc:
+        LOGGER.exception("Symbol %s failed during %s ingestion", symbol, mode)
+        status = SymbolStatus(
+            run_id=run_id,
+            symbol=symbol,
+            mode=mode,
+            requested_start=ms_to_datetime(requested_start_ms),
+            requested_end=ms_to_datetime(end_ms),
+            effective_start=ms_to_datetime(effective_start_ms),
+            rows_fetched=0,
+            rows_inserted=0,
+            status="failed",
+            error=str(exc),
+        )
+        return 0, status</pre>
+
+<div class="box why"><span class="k">Why the exception is caught here and nowhere lower</span>
+<p>This is the one place a broad <code>except Exception</code> is the right answer. One
+market timing out, or returning a malformed payload, must not cost the other 176 their
+writes. The failure is not swallowed: it is logged with a full traceback and written to
+<code>ingestion_symbol_status</code> with the error text, and it makes the cycle's overall
+status <code>partial</code> rather than <code>success</code>.</p></div>
+
+<div class="box def"><span class="k">How the run status is decided</span>
+<p>No failures gives <code>success</code>. Every market failing gives <code>failed</code>.
+Anything between gives <code>partial</code>. A market that succeeds in phase 2 but fails
+during gap repair counts as failed &mdash; the count is deliberately pessimistic.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; real cycles from ingestion_runs</span>
+<div class="io stack">
+<div><span class="lab">out &mdash; the four most recent recorded cycles</span>
+<pre>started_at           finished_at          status   total  ok  failed  inserted
+2026-06-30 16:08:58  2026-06-30 16:11:29  success   175   175      0      6693
+2026-06-30 15:36:21  2026-06-30 15:38:52  success   175   175      0      6821
+2026-06-30 15:03:46  2026-06-30 15:06:18  success   175   175      0      6790
+2026-06-30 14:30:56  2026-06-30 14:33:28  success   175   175      0      6695</pre></div>
+</div>
+<p>Each cycle took about two and a half minutes for 175 markets, comfortably inside the
+30-minute interval, and the gaps between start times are 32 to 33 minutes &mdash; the
+1,800-second interval plus the cycle duration plus jitter.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; per-market rows from ingestion_symbol_status</span>
+<div class="io stack">
+<div><span class="lab">out</span>
+<pre>symbol  mode         requested_start      requested_end        fetched  inserted  status
+PURR    incremental  2026-06-30 15:30:00  2026-06-30 16:07:00       38        38  success
+PYTH    incremental  2026-06-30 15:30:00  2026-06-30 16:07:00       38        38  success
+RSR     incremental  2026-06-30 14:55:00  2026-06-30 16:07:00       73        73  success
+RENDER  incremental  2026-06-30 15:30:00  2026-06-30 16:07:00       38        38  success</pre></div>
+</div>
+<p>RSR asks for a wider window than its neighbours: its watermark was older, because the
+previous cycle had not stored anything for it. That is the self-correcting behaviour
+working, visible in the data.</p></div>
+
+<div class="box why"><span class="k">Why the metadata writes are wrapped in try/except</span>
+<p>By the time the cycle writes <code>ingestion_runs</code>, the candles are already
+committed. Crashing on a bookkeeping failure would throw away nothing useful and would make
+the service look broken when only its diary was. Both metadata writes log the exception and
+continue.</p></div>
+
+<h2 id="quality"><span class="sec-no">12</span>The health report</h2>
+
+<p><code>hyperliquid-candles-quality</code> writes nothing. It asks the exchange which
+markets are currently active, then runs seven read-only queries and prints them as text.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Section</th><th>Answers</th></tr></thead>
+<tbody>
+<tr><td><code>latest_by_symbol</code></td><td>How far behind is each active market?</td></tr>
+<tr><td><code>freshness_alerts</code></td><td>Which of those are past a warning threshold, and how badly?</td></tr>
+<tr><td><code>duplicate_keys</code></td><td>How many market-minutes still have more than one raw row?</td></tr>
+<tr><td><code>gaps</code></td><td>Every internal hole, including unrecoverable historical ones</td></tr>
+<tr><td><code>daily_counts</code></td><td>Rows per market per day, for spotting thin days</td></tr>
+<tr><td><code>parts</code></td><td>ClickHouse storage health per partition</td></tr>
+<tr><td><code>last_runs</code></td><td>The twenty most recent cycles and their status</td></tr>
+</tbody>
+</table>
+</div>
+
+<pre>def classify_freshness(minutes_behind: float, ingestion: IngestionSettings) -&gt; str:
+    <span class="c">"""Map a per-symbol staleness in minutes to an alert severity.</span>
+<span class="c">    ...</span>
+<span class="c">    """</span>
+    if minutes_behind &gt;= ingestion.alert_critical_min:
+        return "critical"
+    if minutes_behind &gt;= ingestion.alert_urgent_min:
+        return "urgent"
+    if minutes_behind &gt;= ingestion.alert_serious_min:
+        return "serious"
+    if minutes_behind &gt;= ingestion.alert_warn_min:
+        return "warning"
+    return "ok"</pre>
+
+<div class="box data"><span class="k">Sample data &mdash; the boundaries, exercised</span>
+<div class="io">
+<div><span class="lab">in &mdash; minutes_behind</span>
+<pre>     0
+    59
+    60
+   719
+   720
+  2880
+  4320
+ 10000</pre></div>
+<div><span class="lab">out &mdash; classify_freshness(...)</span>
+<pre>ok
+ok
+warning     &lt;- 60 is the first warning
+warning
+serious
+urgent
+critical    &lt;- 72 hours; 11 hours of margin left
+critical</pre></div>
+</div>
+<p>The comparisons are all "greater than or equal", so each configured threshold is the
+first minute of its own tier.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; the live instance, 10 August 2026</span>
+<div class="io stack">
+<div><span class="lab">out &mdash; freshness, stalest first then freshest</span>
+<pre>DOOD   last candle 2026-06-25 09:08   67,064 minutes behind   -> critical
+ARK    last candle 2026-06-25 09:19   67,053 minutes behind   -> critical
+IP     last candle 2026-06-29 10:05   61,247 minutes behind   -> critical
+...
+ALGO   last candle 2026-08-09 18:54    1,678 minutes behind   -> urgent
+FET    last candle 2026-08-09 18:54    1,678 minutes behind   -> urgent
+SKR    last candle 2026-08-09 18:54    1,678 minutes behind   -> urgent</pre></div>
+</div>
+<p>This service is currently stopped. Even the freshest market is 28 hours behind, which
+is <code>urgent</code>; three markets stopped updating in June and are far past
+<code>critical</code>. Their missing minutes are gone for good &mdash; 67,064 minutes is
+thirteen times the recoverable horizon.</p></div>
+
+<div class="box why"><span class="k">Why the report asks the exchange before querying the database</span>
+<p><code>_symbol_filter_sql</code> restricts the freshness query to markets that are active
+right now. Without that, every market ever delisted would show up as critically stale
+forever and drown the genuine alerts. Historical rows for delisted markets stay in the
+table; they simply stop being watched.</p></div>
+
+<div class="box warn"><span class="k">Trap found while testing: one missing grant kills the whole report</span>
+<p>Running the report with this project's own ClickHouse user produced:</p>
+<pre>Code: 497. DB::Exception: hyperliquid_user: Not enough privileges.
+To execute this query, it's necessary to have the grant SELECT ON system.parts.</pre>
+<p>The <code>parts</code> section reads <code>system.parts</code>, a server-level table
+that a database-scoped user usually cannot see. <code>_run_query</code> has no per-section
+error handling, so this exception escapes <code>build_quality_report</code> and the other
+six sections &mdash; the useful ones &mdash; are never printed. This is a real operational
+sharp edge, not a code defect: either grant <code>SELECT ON system.parts</code> to the
+ingestion user, or run the report as an administrator.</p></div>
+
+<h2 id="logging"><span class="sec-no">13</span>Logging</h2>
+
+<div class="box def"><span class="k">What <code>setup_logging</code> does</span>
+<p><b>Input:</b> a level name such as <code>"INFO"</code>, and an optional directory.
+<b>Output:</b> the path of the main log file, and three configured handlers.
+<b>Role:</b> called once per process. The scheduler passes
+<code>configure_logging=False</code> to each cycle so that a service running for months
+writes one log file, not one per half hour.</p>
+<p>Three destinations: the console, a dated file, and a second file that receives only
+errors and worse. The naming is <code>YYYY-MM-DD_NNN.log</code> with the sequence number
+incrementing until an unused name is found, so two runs on the same day never overwrite
+each other.</p></div>
+
+<div class="box data"><span class="k">Sample data &mdash; a real log line</span>
+<div class="io">
+<div><span class="lab">in</span>
+<pre>log_level = "INFO"
+message   = "event happened here"</pre></div>
+<div><span class="lab">out</span>
+<pre>logs/2026-08-10_001.log
+logs/2026-08-10_001_errors.log
+
+2026-08-10T22:55:04Z INFO demo event happened here</pre></div>
+</div></div>
+
+<h2 id="fixes"><span class="sec-no">14</span>Fixes applied while writing this page</h2>
+
+<p>Three defects were found by reading, confirmed by running, and fixed. The full test
+suite (37 tests) and <code>ruff check</code> pass after each.</p>
+
+<h3>1. Log timestamps showed the formatting time, not the event time</h3>
+
+<p><code>logging.Formatter</code> calls its <code>converter</code> with the record's own
+creation time and expects calendar fields back. The old converter ignored that argument
+entirely and returned the clock reading at the moment of formatting.</p>
+
+<div class="box data"><span class="k">Sample data &mdash; the bug, demonstrated</span>
+<div class="io stack">
+<div><span class="lab">in &mdash; a record created, then formatted three seconds later</span>
+<pre>record.created = 2026-08-10T22:55:04.038Z</pre></div>
+<div><span class="lab">out</span>
+<pre>old converter: 2026-08-10T22:55:07Z INFO demo event happened here   &lt;- three seconds wrong
+new converter: 2026-08-10T22:55:04Z INFO demo event happened here   &lt;- matches the record</pre></div>
+</div>
+<p>In ordinary synchronous logging the error is under a millisecond, which is why it was
+never noticed. It becomes visible whenever formatting is delayed &mdash; a slow disk, a
+queued handler, or a burst of records flushed together. Since a log file is the only
+forensic record this service leaves behind, its timestamps should mean what they say.</p></div>
+
+<pre>    <span class="c"># `logging.Formatter` calls its converter with the record's own creation</span>
+    <span class="c"># time, so the converter must translate that argument. `time.gmtime` turns</span>
+    <span class="c"># the record timestamp into UTC calendar fields, which is what the "Z"</span>
+    <span class="c"># suffix in `datefmt` promises.</span>
+    formatter.converter = time.gmtime</pre>
+
+<p>File: <code>src/hyperliquid_candles/logging_setup.py</code>. The now-unused
+<code>time_gmtime</code> helper was removed.</p>
+
+<h3>2. The scheduler could crash itself with a negative sleep</h3>
+
+<p>The inner wait loop tested <code>time.monotonic() &lt; deadline</code> and then, on the
+next line, computed <code>deadline - time.monotonic()</code>. The clock advances between
+those two moments. When the deadline is within microseconds, the second reading can already
+be past it, giving a negative duration &mdash; and <code>time.sleep</code> raises
+<code>ValueError: sleep length must be non-negative</code>. That exception is outside the
+per-cycle <code>try</code>, so it would propagate out of <code>run_scheduler</code> and end
+the service. Rare, but the failure mode is "the collector stops and nobody notices for
+days".</p>
+
+<pre>            remaining_seconds = deadline - time.monotonic()
+            time.sleep(max(0.0, min(1.0, remaining_seconds)))</pre>
+
+<p>File: <code>src/hyperliquid_candles/scheduler.py</code>.</p>
+
+<h3>3. A ClickHouse connection pool was leaked on every cycle</h3>
+
+<p><code>run_once</code> opened two clients and closed one. The Hyperliquid client was
+closed in a <code>finally</code> block; the ClickHouse client, created inside
+<code>wait_for_clickhouse</code>, never was. A one-shot command does not care, because the
+process exits. The scheduler calls <code>run_once</code> every thirty minutes forever: 48
+abandoned connection pools per day, each holding its own sockets, for the life of the
+service.</p>
+
+<pre>    finally:
+        <span class="c"># Both clients are opened by this function, so this function closes</span>
+        <span class="c"># them. The scheduler calls `run_once` on every cycle; leaving the</span>
+        <span class="c"># ClickHouse connection pool open would leak one pool of sockets per</span>
+        <span class="c"># cycle for the life of the service.</span>
+        hyperliquid.close()
+        client.close()</pre>
+
+<p>Files: <code>src/hyperliquid_candles/app.py</code>, and
+<code>tests/unit/test_app.py</code> where the stand-in ClickHouse object was extended to
+record that it was closed.</p>
+
+<div class="box def"><span class="k">Deliberately not changed</span>
+<p>Three things that look like defects but are not, or are design decisions rather than
+bugs: the report failing entirely when <code>system.parts</code> is unreadable (an
+operational grant problem, described in section 12); <code>candles_inserted</code> counting
+rows sent rather than rows added (documented in the writer's docstring); and the token
+bucket starting full (recorded as a known trade-off in <code>notes.md</code>). Changing any
+of these alters behaviour rather than fixing a mistake.</p></div>
+
+<h2 id="callgraph"><span class="sec-no">15</span>Call graph</h2>
+
+<pre>main()                                    <span class="c"># hyperliquid-candles</span>
+├── load_settings()
+├── setup_logging()
+└── run_scheduler()
+    └── run_once()                        <span class="c"># also hyperliquid-candles-run-once</span>
+        ├── wait_for_clickhouse()
+        │   └── connect_clickhouse()
+        ├── create_schema()
+        │   ├── _ensure_database()
+        │   └── schema_statements()
+        ├── TokenBucket()
+        ├── HyperliquidClient()
+        └── run_ingestion_cycle()
+            ├── fetch_meta()
+            ├── select_symbols()
+            │   └── active_perp_symbols()
+            ├── query_watermarks_ms()
+            │   └── datetime_to_ms()
+            ├── last_closed_open_ms()
+            ├── earliest_open_ms_for_candle_count()
+            │
+            ├── _ingest_initial_symbol()               <span class="c"># phase 1, new markets</span>
+            │   ├── compute_initial_start_ms()
+            │   │   └── parse_utc_iso_to_ms()
+            │   └── _fetch_store_status()
+            │
+            ├── build_incremental_work_items()         <span class="c"># phase 2, stored markets</span>
+            │   └── _ingest_window()
+            │       └── _fetch_store_status()
+            │
+            ├── _backfill_recoverable_gaps()           <span class="c"># phase 3, repair</span>
+            │   ├── recoverable_gaps_query()
+            │   ├── parse_gap_rows()
+            │   └── _ingest_window()
+            │
+            ├── _cycle_status()
+            ├── insert_symbol_statuses()
+            └── insert_run_summary()
+
+_fetch_store_status()                     <span class="c"># the shared worker of all three phases</span>
+├── fetch_candle_window()
+│   └── HyperliquidClient.fetch_candles()
+│       ├── candle_request_weight()
+│       ├── _post_info_with_retry()
+│       │   └── TokenBucket.wait_for()
+│       └── parse_candles()
+│           └── parse_candle()
+│   └── dedupe_by_symbol_open_time()
+└── insert_candles()
+    └── candle_to_insert_row()
+
+main()                                    <span class="c"># hyperliquid-candles-quality</span>
+└── build_quality_report()
+    ├── wait_for_clickhouse()
+    ├── fetch_meta() and select_symbols()
+    ├── latest_by_symbol_query() / duplicate_keys_query() / gap_query()
+    │   / daily_counts_query() / parts_query() / last_runs_query()
+    ├── _freshness_alert_section()
+    │   └── classify_freshness()
+    └── render_text_report()</pre>
+
+<p class="fnote">The shape worth noticing: all three ingestion phases funnel into one
+<code>_fetch_store_status</code>, which funnels into one
+<code>fetch_candle_window</code>. There is exactly one place where pagination happens.</p>
+
+<h2 id="edge"><span class="sec-no">16</span>Edge cases</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Situation</th><th>What would go wrong without handling</th><th>What handles it</th></tr></thead>
+<tbody>
+<tr><td>Process killed halfway through a cycle</td><td>A file-based bookmark would say "done" for markets never written</td><td>No bookmark exists. The next cycle re-derives everything from <code>max(open_time)</code></td></tr>
+<tr><td>Asking for a bar that has not closed</td><td>Open, high, low, close and volume all still moving; a stored "close" that was never a close</td><td><code>last_closed_open_ms</code> subtracts one interval</td></tr>
+<tr><td>Window wider than the exchange serves</td><td>Forward paging returns the same recent chunk forever</td><td><code>fetch_candle_window</code> walks <code>endTime</code> backwards and stops when the cursor stops moving</td></tr>
+<tr><td>A market listed since the last cycle</td><td>No watermark, so phase 2 skips it and it is never collected</td><td>Phase 1 collects every market whose watermark is <code>None</code></td></tr>
+<tr><td>A market delisted since collection</td><td>Permanent critical staleness alerts; wasted requests</td><td><code>active_perp_symbols</code> drops it; gap repair skips symbols outside <code>tracked_symbols</code></td></tr>
+<tr><td>One market times out or returns rubbish</td><td>The whole cycle aborts and 176 healthy markets lose their writes</td><td><code>_fetch_store_status</code> catches per market, records <code>failed</code>, continues</td></tr>
+<tr><td>The overlap refetches minutes already stored</td><td>Duplicate rows</td><td><code>ReplacingMergeTree(inserted_at)</code> on <code>(symbol, open_time)</code> collapses them at merge time</td></tr>
+<tr><td>Cold start, hundreds of markets at 5,000 candles each</td><td>One insert holding millions of rows in memory and one enormous HTTP body</td><td><code>insert_candles</code> chunks at <code>batch_insert_max_rows</code></td></tr>
+<tr><td>ClickHouse not up yet when the container starts</td><td>Immediate crash loop</td><td><code>wait_for_clickhouse</code> retries network failures with doubling backoff, forever</td></tr>
+<tr><td>User lacks <code>CREATE DATABASE</code></td><td>Startup fails even though the database already exists</td><td><code>_ensure_database</code> forgives ClickHouse error 497 and continues to table DDL</td></tr>
+<tr><td>Database returns a datetime with no timezone</td><td>Every watermark silently shifted by the host's UTC offset</td><td><code>datetime_to_ms</code> attaches UTC before converting</td></tr>
+<tr><td>Exchange rate limit reached</td><td>Refused requests, lost cycles</td><td><code>TokenBucket</code> paces before sending; 429 and 5xx are retried with backoff</td></tr>
+<tr><td>Shutdown signal during a 30-minute sleep</td><td>Container killed by force after a timeout</td><td>The sleep is chopped into one-second slices that check the stop flag</td></tr>
+<tr><td>Metadata insert fails after candles are written</td><td>A crash that discards nothing useful</td><td>Both metadata writes are wrapped, logged, and ignored</td></tr>
+<tr><td>Allowlisted market name is a typo</td><td>Silently collecting fewer markets than intended</td><td><code>select_symbols</code> raises with the list of unmatched names</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="idiom"><span class="sec-no">17</span>Idioms and traps</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Idiom</th><th>What it does</th><th>The trap</th></tr></thead>
+<tbody>
+<tr><td><code>ms // 60000 * 60000</code></td><td>Rounds a millisecond timestamp down to the start of its minute</td><td>Integer division only rounds toward zero correctly for non-negative values. Fine for epoch times after 1970</td></tr>
+<tr><td><code>(N - 1) * interval</code></td><td>Converts a candle count into a time span</td><td>The fencepost. Using <code>N</code> asks for one slot more than exists</td></tr>
+<tr><td><code>@dataclass(frozen=True)</code></td><td>Makes <code>Candle</code>, <code>WorkItem</code>, <code>Settings</code> read-only after construction</td><td>Nothing downstream can quietly edit a candle. Attempted assignment raises</td></tr>
+<tr><td><code>class CandleSource(Protocol)</code></td><td>Describes the shape a fetcher must have, with no inheritance</td><td>Structural, so mistakes surface only under a type checker or at runtime. It is what lets the tests use a fake source</td></tr>
+<tr><td><code>lagInFrame(...) OVER (PARTITION BY ...)</code></td><td>Gives each row its predecessor within one market</td><td>Without <code>PARTITION BY symbol</code> the last row of one market would be compared with the first of the next</td></tr>
+<tr><td><code>FINAL</code></td><td>Forces ClickHouse to collapse duplicate keys at read time</td><td>Expensive. It is used only inside the horizon-filtered subquery, never on the whole table</td></tr>
+<tr><td><code>prev_open != toDateTime64(0, 3)</code></td><td>Drops the first row of each market, which has no predecessor</td><td><code>lagInFrame</code> returns the type's default, the 1970 epoch, not null. Testing for null would not work</td></tr>
+<tr><td><code>time.monotonic()</code></td><td>A clock that only ever increases</td><td>Wall-clock time can jump backwards on an adjustment, which would make a sleep last far too long</td></tr>
+<tr><td><code>random.uniform(0, ...)</code> jitter</td><td>Spreads restarts and retries out in time</td><td>Only matters with several clients. Without it, restarts stay synchronised forever</td></tr>
+<tr><td><code>tuple(sorted(set(...)))</code></td><td>Unique, ordered, immutable market list</td><td>Determinism is the point: two cycles produce comparable logs</td></tr>
+<tr><td><code>str(exc).lower()</code> matching</td><td>Classifies an error by reading its message</td><td>Breaks silently when a library rewords its errors. Used in two places: readiness and the <code>CREATE DATABASE</code> grant check</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="questions"><span class="sec-no">18</span>If someone points at a line</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Question</th><th>Answer</th></tr></thead>
+<tbody>
+<tr><td>"Where could future information leak into the data?"</td><td>Only through the in-progress candle, and <code>last_closed_open_ms</code> excludes it by subtracting one interval. Everything stored is a finished minute. There is no forward-filling, no interpolation, and no derived column</td></tr>
+<tr><td>"Why not just page forward by start time?"</td><td>Because truncation is anchored to the newest end. The live probe in section 8 shows a 6,001-slot request returning 5,217 rows, all 784 dropped slots coming off the old end</td></tr>
+<tr><td>"Why is there no watermark table?"</td><td>It would be a second source of truth that could disagree with the rows. The rows are the state</td></tr>
+<tr><td>"What happens if I set <code>poll_interval_sec = 60</code>?"</td><td>Nothing breaks immediately: a 177-market sweep costs about 3,540 weight, roughly 3.5 minutes at the 1,000 per minute budget. Cycles would then overlap the interval and effectively run back to back. Below the sweep time the service simply never idles</td></tr>
+<tr><td>"How long does a cycle take in practice?"</td><td>Two and a half minutes for 175 markets, from four consecutive real runs recorded in <code>ingestion_runs</code></td></tr>
+<tr><td>"Why <code>Float64</code> for volume rather than something smaller?"</td><td>Because the exchange's own values are the product. Narrowing to 32 bits would change stored numbers to save space. The compression codecs shrink the file without touching the values</td></tr>
+<tr><td>"Can I trust <code>count()</code> on <code>candles_1m</code>?"</td><td>Not exactly. 4,965 duplicate keys are currently awaiting merge. Group by <code>(symbol, open_time)</code> and use <code>argMax(col, inserted_at)</code>, or use <code>FINAL</code></td></tr>
+<tr><td>"Why does <code>candles_inserted</code> exceed the minutes that elapsed?"</td><td>It counts rows sent, and each cycle deliberately resends five overlap minutes per market. 6,693 rows across 175 markets is about 38 per market, matching the 38-slot window the status rows record</td></tr>
+<tr><td>"What happens if the service is off for four days?"</td><td>Everything past the 4,999-minute horizon is gone permanently. The quality report would show <code>critical</code>; the configured threshold fires eleven hours before that point</td></tr>
+<tr><td>"Why does the gap query use <code>gap_after</code> for the earlier time?"</td><td>The columns are named relative to the gap, not to each other. The gap begins after the first candle and ends before the second</td></tr>
+<tr><td>"Is <code>except Exception</code> not too broad?"</td><td>In <code>_fetch_store_status</code> it is the point: isolate one market. It is not silent &mdash; full traceback to the log, error text to <code>ingestion_symbol_status</code>, and the run status drops to <code>partial</code></td></tr>
+<tr><td>"Which settings does the ingestion path ignore?"</td><td>All four <code>alert_*</code> thresholds. They only shape the wording of the quality report</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="limits"><span class="sec-no">19</span>Limitations, stated honestly</h2>
+
+<div class="box flag"><span class="k">History cannot be recovered, only accumulated</span>
+<p>Nothing in this project can retrieve a minute older than the exchange's recent window.
+If the service is down for four days, those four days are gone. The measured 50 days of
+history exist only because the process ran continuously; the live instance now shows three
+markets frozen since June, whose missing minutes are unrecoverable.</p></div>
+
+<div class="box flag"><span class="k">A gap can be a source fact, not a collection failure</span>
+<p>Hyperliquid does not guarantee a candle for every minute. Refetching a gap is safe but
+may not close it, so the same candidate can appear in every future report. There is no way
+in this codebase to tell "we missed it" from "it never existed".</p></div>
+
+<div class="box flag"><span class="k">The rate budget is a local promise, not a contract</span>
+<p>The exchange's 1,200 per minute ceiling applies to everything leaving the internet
+address, not just this process. The bucket assumes it is the sole consumer. Sharing the
+address with another tool silently overspends, and the bucket has no way of knowing.</p></div>
+
+<div class="box flag"><span class="k">Nearly one minute in five has no trades</span>
+<p>2,380,174 of 13,002,252 stored rows have <code>trades = 0</code>. These are valid
+exchange output with a carried-forward price, but any volatility, return or liquidity
+calculation that treats them as genuine observations will understate movement. The
+collector stores them faithfully and does not flag them beyond the <code>trades</code>
+column.</p></div>
+
+<div class="box flag"><span class="k">Volume is not comparable across markets</span>
+<p>The <code>volume</code> column is quantity of the underlying asset, not dollars. One
+unit of BTC volume and one unit of DOGE volume are worth wildly different amounts. A rough
+dollar figure is $\text{notional} = v \times c$, where $v$ is the volume column and $c$ the
+close. Worked from the sample above: $1.29563 \times 63{,}976 = 82{,}889$ USDC for that one
+minute. There is no such column in the table; the caller must compute it.</p></div>
+
+<div class="box flag"><span class="k">Failure counting is pessimistic and one-dimensional</span>
+<p>A market that succeeds in phase 2 but fails during gap repair is counted as failed, so
+<code>symbols_ok</code> can understate what was actually collected. And a run that fails
+entirely writes no <code>ingestion_runs</code> row at all if the cycle throws before
+reaching the metadata write &mdash; the absence of a row is itself the signal, which is
+easy to miss.</p></div>
+
+<div class="box flag"><span class="k">The horizon setting and the alert thresholds are not linked</span>
+<p><code>rest_horizon_candles = 5000</code> and <code>alert_critical_min = 4320</code> are
+related by arithmetic but not by code. Changing one without the other silently moves the
+alarm to the wrong side of the point of no return.</p></div>
+
+<h2 id="verify"><span class="sec-no">20</span>How the code is verified</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Check</th><th>How it works</th><th>What it catches</th></tr></thead>
+<tbody>
+<tr><td><code>uv run pytest</code></td><td>37 unit tests over <code>tests/unit/</code>, all offline. Fetching is tested against a fake source object rather than the network</td><td>Window arithmetic, configuration parsing, candle validation, backward pagination, chunked inserts, gap parsing, schema DDL, and the per-cycle cleanup path</td></tr>
+<tr><td><code>uv run ruff check .</code></td><td>Static linting of the whole repository</td><td>Unused imports and names, style violations, some obvious mistakes</td></tr>
+<tr><td><code>parse_candle</code> validation</td><td>Seven checks per candle at the network boundary</td><td>An upstream schema change becomes a loud per-market failure instead of a corrupted table</td></tr>
+<tr><td><code>fetch_candles</code> post-checks</td><td>Rejects a returned market name that does not match, or an open time outside the requested window</td><td>A mis-routed or mis-parsed response</td></tr>
+<tr><td><code>_validate_positive_tunables</code></td><td>Refuses zero or negative values for the seven settings where they would break scheduling</td><td>A typo in <code>config.toml</code> that would cause a divide by zero or an infinite loop</td></tr>
+<tr><td><code>hyperliquid-candles-quality</code></td><td>Seven read-only queries plus live universe lookup</td><td>Staleness, duplicates, gaps, thin days, and failed cycles &mdash; after the fact, not during</td></tr>
+<tr><td>This page's samples</td><td>Every number in a grey box came from executing the code on 10 August 2026 against the live public endpoint and the project's ClickHouse server</td><td>Claims in documentation that the code does not actually make true</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box def"><span class="k">Running it yourself</span>
+<p><code>uv sync</code>, then <code>cp .env.example .env</code> and fill in the ClickHouse
+values. <code>uv run hyperliquid-candles-run-once</code> performs one cycle,
+<code>uv run hyperliquid-candles</code> starts the service, and
+<code>uv run hyperliquid-candles-quality</code> prints the report. In this environment the
+test suite needed <code>uv run --with typing_extensions pytest</code>, because the
+installed <code>anyio</code> version imports <code>typing_extensions</code> unconditionally
+while declaring it only for older Python versions. That is a packaging quirk of a
+dependency, not a fault in this project.</p></div>
+
+<p class="foot">Companion documents in this repository:
+<code>README.md</code> for setup and scope, <code>GUIDE_OVERVIEW.md</code> for the
+architecture summary, <code>notes.md</code> for the rate-limit and duplicate-row
+reasoning, <code>COMPRESSION_BENCHMARK.md</code> for the codec measurements, and
+<code>docs/reference/IMPLEMENTATION_PLAN.md</code> for the original contract.</p>
+
+</div>
+</body>
+</html>

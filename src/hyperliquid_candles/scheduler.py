@@ -42,4 +42,8 @@ def run_scheduler(settings: Settings, cycle_callback: Callable[[], object]) -> N
 
         deadline = time.monotonic() + sleep_seconds
         while not stop_requested and time.monotonic() < deadline:
-            time.sleep(min(1.0, deadline - time.monotonic()))
+            # The clock advances between the loop test and this line, so the
+            # remaining time can already be negative. `time.sleep` raises on a
+            # negative argument, which would kill the service loop, so clamp it.
+            remaining_seconds = deadline - time.monotonic()
+            time.sleep(max(0.0, min(1.0, remaining_seconds)))

@@ -104,7 +104,12 @@ def run_once(
             hyperliquid_client=hyperliquid,
         )
     finally:
+        # Both clients are opened by this function, so this function closes
+        # them. The scheduler calls `run_once` on every cycle; leaving the
+        # ClickHouse connection pool open would leak one pool of sockets per
+        # cycle for the life of the service.
         hyperliquid.close()
+        client.close()
 
 
 def run_ingestion_cycle(

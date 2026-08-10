@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,7 +35,11 @@ def setup_logging(log_level: str, logs_dir: Path | None = None) -> Path:
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%SZ",
     )
-    formatter.converter = time_gmtime
+    # `logging.Formatter` calls its converter with the record's own creation
+    # time, so the converter must translate that argument. `time.gmtime` turns
+    # the record timestamp into UTC calendar fields, which is what the "Z"
+    # suffix in `datefmt` promises.
+    formatter.converter = time.gmtime
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
@@ -67,8 +72,3 @@ def _next_log_path(logs_dir: Path) -> Path:
         if not candidate.exists():
             return candidate
         sequence += 1
-
-
-def time_gmtime(*args: object) -> tuple[int, ...]:
-    """Adapter used by logging.Formatter to emit UTC timestamps."""
-    return datetime.now(tz=UTC).timetuple()

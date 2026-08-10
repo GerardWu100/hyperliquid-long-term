@@ -1,14 +1,24 @@
 from pathlib import Path
 from uuid import UUID
 
-import hyperliquid_candles.app as app
+from hyperliquid_candles import app
 from hyperliquid_candles.config import ClickHouseSettings, IngestionSettings, Settings
+
+
+class FakeClickHouseClient:
+    """Small ClickHouse client replacement that records close calls."""
+
+    was_closed = False
+
+    def close(self) -> None:
+        """Record that the production cleanup path closed the connection pool."""
+        type(self).was_closed = True
 
 
 class FakeValidatedClickHouse:
     """Small ClickHouse readiness result used to avoid network calls in app tests."""
 
-    client = object()
+    client = FakeClickHouseClient()
     version = "test-version"
 
 
@@ -81,3 +91,4 @@ def test_run_once_can_skip_logging_setup_for_scheduler_cycles(monkeypatch) -> No
     assert result.status == "success"
     assert logging_calls == []
     assert FakeHyperliquidClient.was_closed is True
+    assert FakeClickHouseClient.was_closed is True
