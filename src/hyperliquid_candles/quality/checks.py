@@ -66,7 +66,7 @@ def build_quality_report(settings: Settings | None = None) -> str:
     return render_text_report(sections)
 
 
-def classify_freshness(minutes_behind: float, ingestion: "IngestionSettings") -> str:
+def classify_freshness(minutes_behind: float, ingestion: IngestionSettings) -> str:
     """Map a per-symbol staleness in minutes to an alert severity.
 
     Severity rises as stored data falls further behind the latest closed candle.
@@ -86,7 +86,7 @@ def classify_freshness(minutes_behind: float, ingestion: "IngestionSettings") ->
 
 
 def _freshness_alert_section(
-    latest_section: QualitySection, ingestion: "IngestionSettings"
+    latest_section: QualitySection, ingestion: IngestionSettings
 ) -> QualitySection:
     """Build a severity-labelled view of symbols that are behind the warn threshold.
 

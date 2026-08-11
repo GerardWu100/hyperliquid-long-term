@@ -1,7 +1,6 @@
 """Unit tests for Hyperliquid request-weight accounting."""
 
 import pytest
-
 from hyperliquid_candles.hyperliquid.client import candle_request_weight
 
 

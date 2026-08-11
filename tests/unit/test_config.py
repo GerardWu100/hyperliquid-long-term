@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from hyperliquid_candles import config as config_module
 from hyperliquid_candles.config import Settings, load_settings
 

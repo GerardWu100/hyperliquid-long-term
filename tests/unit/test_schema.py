@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from hyperliquid_candles.storage.schema import create_schema, schema_statements
 
 

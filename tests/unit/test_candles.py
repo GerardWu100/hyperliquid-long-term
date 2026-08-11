@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 
 import pytest
-
 from hyperliquid_candles.hyperliquid.candles import (
     Candle,
     dedupe_by_symbol_open_time,

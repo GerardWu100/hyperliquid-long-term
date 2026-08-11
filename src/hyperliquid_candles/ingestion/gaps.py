@@ -121,7 +121,7 @@ ORDER BY symbol, gap_after
 
 def parse_gap_rows(
     result_rows: list[tuple[object, ...]],
-    datetime_to_ms: "object",
+    datetime_to_ms: object,
 ) -> list[CandleGap]:
     """Convert raw gap query rows into typed :class:`CandleGap` records.
 

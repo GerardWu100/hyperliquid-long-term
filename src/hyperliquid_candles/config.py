@@ -7,11 +7,11 @@ details and `config.toml` for non-secret ingestion tunables.
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import tomllib
 from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -116,7 +116,7 @@ class Settings:
         cls,
         env_values: dict[str, str | None],
         config_values: dict[str, Any],
-    ) -> "Settings":
+    ) -> Settings:
         """Build settings from already-loaded environment and TOML values.
 
         Raises

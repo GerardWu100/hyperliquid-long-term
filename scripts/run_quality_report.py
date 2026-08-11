@@ -4,6 +4,5 @@ from __future__ import annotations
 
 from hyperliquid_candles.quality.checks import main
 
-
 if __name__ == "__main__":
     main()
