@@ -6,13 +6,13 @@ image: images/cover.png
 categories: ["Data Science", "Capital Markets", "Quantitative Research"]
 ---
 
-# Building Long-Term Hyperliquid Candle History from a Short REST Window
+# Building long-term Hyperliquid candle history from a short REST window
 
-Hyperliquid's REST application programming interface (API) exposes only a recent slice of one-minute candles. Its official documentation says the most recent 5,000 candles are available. This project treats 5,000 one-minute slots as a conservative request window. If every minute has a candle, those 5,000 inclusive opens span 4,999 minutes, or about 3 days and 11 hours. Once an outage passes the source's retained history, a REST collector cannot reconstruct it.
+Hyperliquid's REST application programming interface, or API, exposes only a recent slice of one-minute candles. Its official documentation says the most recent 5,000 candles are available. I use 5,000 one-minute slots as a conservative request window. If every minute has a candle, those 5,000 inclusive opens span 4,999 minutes, or about 3 days and 11 hours. Once an outage passes the source's retained history, no REST collector can reconstruct it.
 
-That constraint changes the engineering problem. This is not a one-off downloader. It is a small service that must keep running, know exactly where storage ends for every perpetual contract, tolerate repeated inserts, and repair misses while the source still remembers them.
+That limit rules out a one-off downloader. The collector must keep running. It also needs to know where storage ends for every perpetual contract, tolerate repeated inserts, and repair misses before the source forgets them.
 
-The resulting pipeline is deliberately narrow: discover active perpetual markets, fetch closed one-minute candles, write them to ClickHouse, and record enough quality information to spot trouble early. It does not trade, stream WebSocket data, ingest a deep archive, or operate the database itself.
+The pipeline has a narrow job. It discovers active perpetual markets, fetches closed one-minute candles, writes them to ClickHouse, and records enough quality information to catch trouble early. It does not trade, stream WebSocket data, ingest a deep archive, or operate the database itself.
 
 ## The clock starts at the last closed minute
 
@@ -48,7 +48,7 @@ The first term deliberately re-fetches recent rows. The second bounds the reques
 
 There is no local progress file and no separate watermark table. At the start of each cycle, the service queries `max(open_time)` by symbol from ClickHouse. Stored candle rows are the single source of truth.
 
-That choice removes an awkward failure case. If a process writes candles and crashes before updating a separate cursor, the two records disagree. Here, a restart simply reads the rows that actually landed and rebuilds the next request window from them.
+That choice removes an awkward failure case. A process might write candles and crash before updating a separate cursor, leaving the two records in conflict. Here, a restart reads the rows that actually landed and rebuilds the next request window from them.
 
 The cycle has three passes:
 
@@ -132,7 +132,7 @@ The raw table uses ClickHouse's `ReplacingMergeTree(inserted_at)` engine and sor
 
 Idempotent does not mean physically unique at every instant. ClickHouse removes older versions during background merges, so duplicate keys may coexist before a merge completes. Research queries that need exactly one row per symbol-minute should collapse versions with `argMax(..., inserted_at)`, query with `FINAL`, or apply an equivalent deduplication step.
 
-This is a useful trade: ingestion stays simple and restart-safe, while readers choose whether they need immediate logical uniqueness or maximum scan speed.
+I think this is the right trade for a collector. Ingestion stays simple and restart-safe. Readers choose whether they need immediate logical uniqueness or maximum scan speed.
 
 ## Freshness is a recovery budget
 
@@ -174,7 +174,7 @@ These values come from the repository's separate 3,162,240-row crypto perpetual 
 
 The created Hyperliquid schema follows the measured column pattern while choosing ZSTD level 12: `DoubleDelta` for timestamps, `Delta` for prices, plain ZSTD for lossless `Float64` volume, and `T64` for `UInt32` trade counts. The benchmark supports the codec ranking. It does not establish the eventual storage footprint of this specific dataset.
 
-## What the design guarantees, and what it cannot
+## What the design can guarantee
 
 The service is restart-safe within the source's recoverable window. It recomputes state from stored rows, re-fetches a bounded overlap, isolates per-symbol failures, and attempts to heal recent internal gaps. Those properties are covered by unit tests for time arithmetic, pagination, parsing, work-item construction, gap handling, and chunked writes.
 
@@ -182,7 +182,7 @@ The design cannot recover an outage older than REST history. A configured 5,000-
 
 There is one more boundary worth keeping explicit: the repository contains no frozen production quality report. I can explain the failure model, tested behavior, configured thresholds, and measured codec experiment. I cannot honestly claim production uptime, ingest throughput, accumulated row count, or the live table's compression ratio from the material checked into this project.
 
-The useful dividing line is simple: unit tests support the time arithmetic, validation, pagination, retry accounting, deduplication path, and chunked writes. The repository's compression experiment supports codec selection. Uptime, throughput, live coverage, and production storage cost remain unmeasured.
+The evidence stops at a clear line. Unit tests support the time arithmetic, validation, pagination, retry accounting, deduplication path, and chunked writes. The repository's compression experiment supports codec selection. Uptime, throughput, live coverage, and production storage cost remain unmeasured.
 
 ## References
 

@@ -8,11 +8,11 @@ categories: ["Data Science", "Capital Markets", "Quantitative Research"]
 
 # Construire un historique long terme des bougies Hyperliquid à partir d'une courte fenêtre REST
 
-L'interface de programmation REST (API) d'Hyperliquid ne donne accès qu'à une tranche récente des bougies à une minute. Sa documentation officielle annonce la disponibilité des 5 000 bougies les plus récentes. Ce projet retient donc 5 000 créneaux d'une minute comme fenêtre de requête prudente. Si chaque minute contient une bougie, ces 5 000 ouvertures inclusives couvrent 4 999 minutes, soit environ 3 jours et 11 heures. Une fois l'historique de la source dépassé, REST ne peut plus reconstruire une panne.
+L'interface de programmation REST d'Hyperliquid, ou API, ne donne accès qu'à une tranche récente des bougies à une minute. Sa documentation officielle annonce la disponibilité des 5 000 bougies les plus récentes. Je retiens 5 000 créneaux d'une minute comme fenêtre de requête prudente. Si chaque minute contient une bougie, ces 5 000 ouvertures inclusives couvrent 4 999 minutes, soit environ 3 jours et 11 heures. Une fois l'historique de la source dépassé, aucun collecteur REST ne peut reconstruire une panne.
 
-Cette contrainte change la nature du problème. Il ne s'agit pas d'un simple téléchargement ponctuel. Le service doit tourner en continu, savoir précisément où s'arrête le stockage pour chaque contrat perpétuel, tolérer les insertions répétées et réparer les trous tant que la source les conserve encore.
+Cette limite exclut le simple téléchargement ponctuel. Le collecteur doit tourner en continu. Il doit aussi savoir précisément où s'arrête le stockage pour chaque contrat perpétuel, tolérer les insertions répétées et réparer les trous avant que la source ne les oublie.
 
-Le pipeline reste volontairement ciblé : découvrir les marchés perpétuels actifs, récupérer les bougies fermées à une minute, les écrire dans ClickHouse et enregistrer assez d'informations de qualité pour détecter rapidement un incident. Il ne prend aucune position, ne consomme pas de flux WebSocket, n'ingère pas d'archive profonde et n'administre pas la base de données.
+Le pipeline a une tâche précise. Il découvre les marchés perpétuels actifs, récupère les bougies fermées à une minute, les écrit dans ClickHouse et enregistre assez d'informations de qualité pour détecter rapidement un incident. Il ne prend aucune position, ne consomme pas de flux WebSocket, n'ingère pas d'archive profonde et n'administre pas la base de données.
 
 ## Le temps s'arrête à la dernière minute clôturée
 
@@ -48,7 +48,7 @@ Le premier terme recharge volontairement les observations récentes. Le second b
 
 Le projet n'utilise ni fichier local de progression ni table de watermark séparée. Au début de chaque cycle, le service interroge `max(open_time)` par symbole dans ClickHouse. Les bougies effectivement stockées constituent l'unique source de vérité.
 
-Ce choix élimine un cas de panne délicat. Si un processus écrit les bougies puis s'arrête avant de mettre à jour un curseur distinct, les deux états divergent. Ici, après un redémarrage, le service relit simplement les lignes réellement enregistrées et reconstruit la prochaine fenêtre de requête.
+Ce choix élimine un cas de panne délicat. Un processus peut écrire les bougies puis s'arrêter avant de mettre à jour un curseur distinct, ce qui laisse deux états contradictoires. Ici, après un redémarrage, le service relit les lignes réellement enregistrées et reconstruit la prochaine fenêtre de requête.
 
 Chaque cycle comporte trois passes :
 
@@ -132,7 +132,7 @@ La table brute utilise le moteur ClickHouse `ReplacingMergeTree(inserted_at)` et
 
 Idempotent ne signifie pas physiquement unique à chaque instant. ClickHouse élimine les anciennes versions lors des fusions en arrière-plan. Des clés en double peuvent donc coexister avant la fin d'une fusion. Une requête de recherche qui exige exactement une ligne par minute et par symbole doit réduire les versions avec `argMax(..., inserted_at)`, utiliser `FINAL` ou appliquer une déduplication équivalente.
 
-Le compromis est raisonnable : l'ingestion reste simple et résistante aux redémarrages, tandis que le lecteur choisit entre l'unicité logique immédiate et une vitesse de lecture maximale.
+Je trouve ce compromis adapté à un collecteur. L'ingestion reste simple et résistante aux redémarrages. Le lecteur choisit entre l'unicité logique immédiate et une vitesse de lecture maximale.
 
 ## La fraîcheur représente un budget de récupération
 
@@ -174,7 +174,7 @@ Ces valeurs proviennent du benchmark séparé du dépôt sur 3 162 240 lignes de
 
 Le schéma Hyperliquid créé reprend la structure de codecs mesurée tout en choisissant le niveau ZSTD 12 : `DoubleDelta` pour les timestamps, `Delta` pour les prix, ZSTD seul pour conserver le volume `Float64` sans perte et `T64` pour le nombre de transactions `UInt32`. Le benchmark étaye le classement des codecs. Il ne détermine pas l'empreinte finale de ce jeu de données précis.
 
-## Ce que la conception garantit, et ce qu'elle ne peut pas garantir
+## Ce que la conception peut garantir
 
 Le service résiste aux redémarrages tant que les données restent dans la fenêtre récupérable de la source. Il recalcule son état à partir des lignes stockées, recharge un chevauchement borné, isole les échecs par symbole et tente de réparer les trous internes récents. Les tests unitaires couvrent l'arithmétique temporelle, la pagination, le parsing, la construction des fenêtres de travail, la gestion des trous et les écritures par lots.
 
@@ -182,7 +182,7 @@ La conception ne peut pas récupérer une panne plus ancienne que l'historique R
 
 Une autre limite mérite d'être explicite : le dépôt ne contient aucun rapport de qualité de production figé. Le modèle de panne, le comportement testé, les seuils configurés et l'expérience mesurée sur les codecs sont documentés. En revanche, les fichiers versionnés ne permettent pas d'affirmer un uptime de production, un débit d'ingestion, un nombre de lignes accumulées ou le ratio de compression de la table réelle.
 
-La frontière utile est nette : les tests unitaires étayent l'arithmétique temporelle, la validation, la pagination, le calcul du poids des retries, le chemin de déduplication et les écritures découpées. L'expérience de compression du dépôt étaye le choix des codecs. L'uptime, le débit, la couverture réelle et le coût de stockage en production restent inconnus.
+Les preuves s'arrêtent à une limite nette. Les tests unitaires étayent l'arithmétique temporelle, la validation, la pagination, le calcul du poids des retries, le chemin de déduplication et les écritures découpées. L'expérience de compression du dépôt étaye le choix des codecs. L'uptime, le débit, la couverture réelle et le coût de stockage en production restent inconnus.
 
 ## Références
 
