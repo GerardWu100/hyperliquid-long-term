@@ -108,7 +108,3 @@ or to `~/.containers/hyperliquid-candles` when running with Docker.
 
 See `COMPRESSION_BENCHMARK.md` for the compression choices used by the candle
 table.
-
-## License
-
-All rights reserved. See [LICENSE](LICENSE).
