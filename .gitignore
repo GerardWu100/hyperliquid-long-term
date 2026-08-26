@@ -36,3 +36,13 @@ data/
 *.swp
 .DS_Store
 Thumbs.db
+
+# macOS Finder files
+._*
+__MACOSX/
+
+# Obsidian vault state. Markdown notes stay tracked.
+.obsidian/
+.obsidian-*/
+.obsidian.vimrc
+.trash/
