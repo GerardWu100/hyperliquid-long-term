@@ -1,21 +1,20 @@
 # Hyperliquid Long-Term Candles
 
-This service continuously copies Hyperliquid perpetual-futures one-minute
-candles into ClickHouse. Because Hyperliquid's REST API exposes only recent
-candles, leaving the service running builds a long-term local history for
-research.
+This service continuously copies one-minute candles for Hyperliquid perpetual
+futures into ClickHouse. Hyperliquid's REST API exposes only recent candles, so
+leaving the service running builds a longer local history for research.
 
 ## What it does
 
 - Finds active perpetual markets and downloads their closed one-minute candles
   from Hyperliquid's `candleSnapshot` endpoint.
-- Resumes from the latest candle already in ClickHouse, fetching missing data
-  with a small overlap and writing it in bounded batches.
-- Checks the recent API window after catch-up and fills any gaps it finds.
+- Resumes from the latest candle in ClickHouse, fetches missing data with a
+  small overlap, and writes it in bounded batches.
+- Checks the recent API window after catch-up and fills any gaps.
 - Stores candles in `candles_1m`, keyed by `(symbol, open_time)`, and records
   each collection cycle in `ingestion_runs` and `ingestion_symbol_status`.
 - Creates these tables when needed. It does not install, configure, or back up
-  ClickHouse, so a reachable ClickHouse server must already exist.
+  ClickHouse, so a reachable server must already exist.
 
 Deep backfill from Hyperliquid's S3 archive, trading, and WebSocket ingestion
 are outside the project's scope. Hyperliquid provides about 5,000 recent
@@ -48,8 +47,7 @@ cp .env.example .env
 ```
 
 Add your ClickHouse connection details to `.env`. Use `config.toml` to change
-the polling schedule, symbols, request limits, batch size, and alert
-thresholds.
+the polling schedule, symbols, request limits, batch size, and alert thresholds.
 
 If the database does not exist, create it in ClickHouse:
 
@@ -72,10 +70,12 @@ cp .env.example .env       # edit ClickHouse settings in .env
 docker compose up --build
 ```
 
-To update a running deployment, run `./update.sh`. It pulls the committed code,
-then stops, rebuilds, and restarts the containers. It works from any directory
-and stops at the first failure, so a failed pull cannot silently redeploy old
-code.
+To update a deployment, run `./update.sh`. It pulls committed code and rebuilds
+only when the pull found something new. Use `--force` to rebuild anyway—for
+example, after editing `.env`, when a base image changed under an unchanged
+Dockerfile, or when you want to recreate a container. If nothing is running,
+the script starts the deployment either way. It works from any directory and
+stops at the first failure, so a failed pull cannot silently redeploy old code.
 
 Docker mounts the root `.env` inside the container and writes logs to
 `~/.containers/hyperliquid-candles`. Inside the container,
