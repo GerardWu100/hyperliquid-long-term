@@ -1,22 +1,34 @@
-# Part 1: Conceptual explanation
+# Scripts
 
-`scripts/` contains thin command wrappers for operators who prefer file paths
-over installed console scripts. The scripts do not implement ingestion logic;
-they import package entrypoints from `src/hyperliquid_candles/`.
+The files in `scripts/` are small wrappers for schedulers and operators who
+need a file path. The reusable logic stays in
+`src/hyperliquid_candles/`; these scripts only call it.
 
-Use `scripts/run_once.py` for cron or `systemd` timers and
-`scripts/run_quality_report.py` for ad-hoc ClickHouse data checks.
+Use the installed commands when possible:
 
-# Part 2: Code reference
+```bash
+uv run hyperliquid-candles-run-once
+uv run hyperliquid-candles-quality
+```
 
-- `run_once.py`: calls `hyperliquid_candles.scripts_run_once.main`, which runs exactly one
-  ingestion cycle.
-- `run_quality_report.py`: calls `hyperliquid_candles.quality.checks.main`, which prints
-  a plain-text quality report whose freshness section covers active symbols.
+Use a file path when an external scheduler requires one.
 
-Prefer the console scripts `uv run hyperliquid-candles-run-once` and `uv run hyperliquid-candles-quality` unless a
-file path is required by an external scheduler.
+## Files
 
-# Part 3: Short journal
+- `run_once.py` runs exactly one ingestion cycle. It calls
+  `hyperliquid_candles.scripts_run_once.main` and is suitable for cron or
+  `systemd` timers.
+- `run_quality_report.py` prints a plain-text ClickHouse quality report. Its
+  freshness section covers active symbols.
+- `update.sh` updates a Docker deployment. It finds the project directory from
+  its own location, pulls the committed code, then stops, rebuilds, and
+  restarts the containers. It stops at the first failed command, so a failed
+  pull cannot quietly redeploy the old code. It is a shell script because it
+  only coordinates `git` and `docker` commands.
 
-- 2026-06-21: Kept scripts as wrappers so reusable behavior stays in the package.
+## Notes
+
+- 2026-06-21: Kept these files as wrappers so reusable behavior remains in the
+  package.
+- 2026-08-26: Added `update.sh` to replace three manual deployment commands
+  with one.
