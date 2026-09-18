@@ -66,23 +66,17 @@ def schema_statements(database: str) -> list[str]:
 
 
 def _candles_ddl(database: str) -> str:
-    """Return DDL for raw 1-minute candle rows.
-
-    The OHLC columns use first-difference encoding because adjacent 1-minute
-    prices usually move gradually. The volume column intentionally does not use
-    Delta or Gorilla because benchmarked Hyperliquid-style fractional volume is
-    noisy and compressed best as raw Float64 values passed to ZSTD.
-    """
+    """Return lossless candle DDL with plain ZSTD for Float64 prices and volume."""
     return f"""
 CREATE TABLE IF NOT EXISTS {database}.candles_1m
 (
     symbol      LowCardinality(String),
     open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
     close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
-    open        Float64               CODEC(Delta, ZSTD(12)),
-    high        Float64               CODEC(Delta, ZSTD(12)),
-    low         Float64               CODEC(Delta, ZSTD(12)),
-    close       Float64               CODEC(Delta, ZSTD(12)),
+    open        Float64               CODEC(ZSTD(12)),
+    high        Float64               CODEC(ZSTD(12)),
+    low         Float64               CODEC(ZSTD(12)),
+    close       Float64               CODEC(ZSTD(12)),
     volume      Float64               CODEC(ZSTD(12)),
     trades      UInt32                CODEC(T64, ZSTD(12)),
     inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))

@@ -1,5 +1,13 @@
 # ClickHouse Compression Decisions for Minute-Level Market Data
 
+> Current policy (2026-09-18): new Hyperliquid candle tables use plain
+> `ZSTD(12)` for Float64 prices and volume, `DoubleDelta, ZSTD(12)` for
+> timestamps, and `T64, ZSTD(12)` for trade counts. The broader Hyperliquid
+> comparison favored plain ZSTD over Gorilla. The June results below used
+> other datasets and remain historical evidence; they do not establish Delta
+> as optimal for this table. Service startup does not alter existing tables.
+
+
 Benchmark date: 2026-06-24. Server: local ClickHouse 26.5.1.882 (port 50050).
 
 This report records how column codecs were chosen for one-minute OHLCV

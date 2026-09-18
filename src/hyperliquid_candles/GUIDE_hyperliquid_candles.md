@@ -64,8 +64,8 @@ cache.
 - `storage/clickhouse_client.py`: readiness-aware ClickHouse connection.
 - `storage/schema.py`: database and table DDL. The raw candle DDL uses
   benchmarked lossless ClickHouse codecs: `DoubleDelta + ZSTD(12)` for
-  timestamps, `Delta + ZSTD(12)` for OHLC prices, plain `ZSTD(12)` for
-  fractional volume, and `T64 + ZSTD(12)` for trade counts. The service uses
+  timestamps, plain `ZSTD(12)` for Float64 OHLC prices and fractional volume,
+  and `T64 + ZSTD(12)` for trade counts. The service uses
   `CREATE TABLE IF NOT EXISTS` and intentionally does not alter existing table
   metadata.
 - `storage/writer.py`: columnar candle inserts, chunked by `batch_insert_max_rows`

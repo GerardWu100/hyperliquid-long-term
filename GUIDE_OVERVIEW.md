@@ -90,10 +90,11 @@ of truth. ClickHouse rows are the source of truth, and failures between fetch an
 insert are recovered by the next cycle re-querying actual stored rows.
 
 For newly created raw candle tables, the schema favors lossless compression over
-lossy type changes. Price columns use first-difference encoding plus ZSTD(12),
-volume remains Float64 with plain ZSTD(12), timestamps use DoubleDelta plus
-ZSTD(12), and trade counts use T64 plus ZSTD(12). This follows the local
-benchmark in `COMPRESSION_BENCHMARK.md`.
+lossy type changes. Price and volume columns retain Float64 with plain ZSTD(12),
+timestamps use DoubleDelta plus ZSTD(12), and trade counts use T64 plus
+ZSTD(12). This matches the current intraday-minute storage policy. Startup
+uses `CREATE TABLE IF NOT EXISTS` and leaves existing codecs unchanged.
+See the policy note in `COMPRESSION_BENCHMARK.md`.
 
 The REST limiter reserves the full estimated request weight before each HTTP
 attempt. For candle requests, the estimate is the base 20 weight units plus one
