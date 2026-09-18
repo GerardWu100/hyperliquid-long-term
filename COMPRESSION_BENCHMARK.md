@@ -1,11 +1,16 @@
 # ClickHouse Compression Decisions for Minute-Level Market Data
 
-> Current policy (2026-09-18): new Hyperliquid candle tables use plain
-> `ZSTD(12)` for Float64 prices and volume, `DoubleDelta, ZSTD(12)` for
-> timestamps, and `T64, ZSTD(12)` for trade counts. The broader Hyperliquid
-> comparison favored plain ZSTD over Gorilla. The June results below used
-> other datasets and remain historical evidence; they do not establish Delta
-> as optimal for this table. Service startup does not alter existing tables.
+> Current policy (2026-09-18): new Hyperliquid candle tables use
+> `Delta(8), ZSTD(12)` for Float64 prices, plain `ZSTD(12)` for Float64 volume,
+> `DoubleDelta, ZSTD(12)` for timestamps, and `T64, ZSTD(12)` for trade counts.
+> The [direct Delta comparison](https://github.com/frenzied-org/feature-engineering/blob/3abb3d3/docs/reference/candle-plain-vs-delta-2026-09-18.md)
+> measured 32.4% less price storage with Delta and 20.1% more volume storage
+> with Delta on 1,426,239 Hyperliquid rows across 16 symbols in October and
+> December 2025. Values were preserved exactly; speed was not benchmarked.
+> These are sample storage results, not a full-history guarantee. Beating
+> Gorilla did not establish that plain ZSTD beat Delta. The June results below
+> remain historical evidence; their lossy volume choices are not current policy.
+> Startup leaves existing table codecs unchanged.
 
 
 Benchmark date: 2026-06-24. Server: local ClickHouse 26.5.1.882 (port 50050).

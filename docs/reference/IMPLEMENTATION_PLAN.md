@@ -312,10 +312,10 @@ CREATE TABLE IF NOT EXISTS hyperliquid.candles_1m
     symbol      LowCardinality(String),
     open_time   DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
     close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12)),
-    open        Float64               CODEC(ZSTD(12)),
-    high        Float64               CODEC(ZSTD(12)),
-    low         Float64               CODEC(ZSTD(12)),
-    close       Float64               CODEC(ZSTD(12)),
+    open        Float64               CODEC(Delta(8), ZSTD(12)),
+    high        Float64               CODEC(Delta(8), ZSTD(12)),
+    low         Float64               CODEC(Delta(8), ZSTD(12)),
+    close       Float64               CODEC(Delta(8), ZSTD(12)),
     volume      Float64               CODEC(ZSTD(12)),
     trades      UInt32                CODEC(T64, ZSTD(12)),
     inserted_at DateTime64(3, 'UTC')  DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(12))
@@ -345,10 +345,10 @@ SETTINGS index_granularity = 8192;
 - **Codecs**:
   - `DoubleDelta + ZSTD` on the timestamps: minute series are an arithmetic
     progression (+60000 ms), which `DoubleDelta` reduces to near-zero residuals.
-  - Plain `ZSTD(12)` on Float64 prices and volume follows the current
-    intraday-minute storage policy. The broader Hyperliquid comparison favored
-    plain ZSTD over Gorilla; the older cross-dataset Delta result does not
-    establish Delta as optimal for this table.
+  - `Delta(8), ZSTD(12)` on Float64 prices and plain `ZSTD(12)` on volume
+    follow the direct September 2026 comparison: Delta saved 32.4% on sampled
+    Hyperliquid prices but increased volume storage by 20.1%. See the current
+    policy note in `COMPRESSION_BENCHMARK.md` for evidence and limits.
   - `T64 + ZSTD` on `trades` (small integers): bit-packs the range.
 - **Deduplication strategy**: physical dedup via ReplacingMergeTree at merge;
   logical dedup at read time via `FINAL` or `argMax` (see §8) so queries are

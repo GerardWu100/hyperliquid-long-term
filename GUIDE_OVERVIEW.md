@@ -90,9 +90,9 @@ of truth. ClickHouse rows are the source of truth, and failures between fetch an
 insert are recovered by the next cycle re-querying actual stored rows.
 
 For newly created raw candle tables, the schema favors lossless compression over
-lossy type changes. Price and volume columns retain Float64 with plain ZSTD(12),
-timestamps use DoubleDelta plus ZSTD(12), and trade counts use T64 plus
-ZSTD(12). This matches the current intraday-minute storage policy. Startup
+lossy type changes. Prices retain Float64 with Delta(8) plus ZSTD(12); volume
+retains Float64 with plain ZSTD(12). Timestamps use DoubleDelta plus ZSTD(12),
+and trade counts use T64 plus ZSTD(12). This matches the current intraday-minute storage policy. Startup
 uses `CREATE TABLE IF NOT EXISTS` and leaves existing codecs unchanged.
 See the policy note in `COMPRESSION_BENCHMARK.md`.
 

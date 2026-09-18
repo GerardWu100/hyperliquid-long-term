@@ -57,7 +57,7 @@ def test_create_schema_propagates_unrelated_database_errors() -> None:
 
 
 def test_candles_schema_uses_benchmarked_lossless_codecs() -> None:
-    """Keep Float64 candles on plain ZSTD and preserve timestamp/count codecs."""
+    """Use Delta for Float64 prices; preserve plain volume and timestamp/count codecs."""
     candles_ddl = schema_statements("hyperliquid")[0]
 
     assert (
@@ -66,10 +66,10 @@ def test_candles_schema_uses_benchmarked_lossless_codecs() -> None:
     assert (
         "close_time  DateTime64(3, 'UTC')  CODEC(DoubleDelta, ZSTD(12))" in candles_ddl
     )
-    assert "open        Float64               CODEC(ZSTD(12))" in candles_ddl
-    assert "high        Float64               CODEC(ZSTD(12))" in candles_ddl
-    assert "low         Float64               CODEC(ZSTD(12))" in candles_ddl
-    assert "close       Float64               CODEC(ZSTD(12))" in candles_ddl
+    assert "open        Float64               CODEC(Delta(8), ZSTD(12))" in candles_ddl
+    assert "high        Float64               CODEC(Delta(8), ZSTD(12))" in candles_ddl
+    assert "low         Float64               CODEC(Delta(8), ZSTD(12))" in candles_ddl
+    assert "close       Float64               CODEC(Delta(8), ZSTD(12))" in candles_ddl
     assert "volume      Float64               CODEC(ZSTD(12))" in candles_ddl
     assert "trades      UInt32                CODEC(T64, ZSTD(12))" in candles_ddl
     assert "Gorilla" not in candles_ddl
