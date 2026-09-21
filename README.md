@@ -85,6 +85,32 @@ port there.
 
 ## Configuration
 
+### Notifications
+
+Set `APPRISE_URL=apprise://apprise-api:8000/YOUR_KEY` in the ignored root `.env`.
+The Apprise library calls `http://apprise-api:8000/notify/YOUR_KEY`; do not insert
+`/notify/` in the `apprise://` URL. An empty value disables notifications.
+The mounted `.env` value takes precedence over the process environment.
+
+The container service sends a startup notice before loading collection settings,
+then forwards operational warnings and errors: ClickHouse readiness failures,
+failed cycles or symbols, rejected candle data, gap detection failures, and
+metadata write failures. Fatal initialization failures also send an alert.
+Warning and error notices each have a fifteen-minute cooldown per process to
+limit floods; restart notices are always attempted. Notifications refer to the
+container logs and omit formatted error details to protect credentials.
+
+Delivery runs in a daemon worker with a bounded queue and five-second connection
+and read timeouts, so an unavailable notification server cannot block ingestion.
+Delivery failures are logged without secrets. The existing standalone quality
+report remains a manual command; this does not add a freshness watchdog.
+Process alerts cannot report host power loss or a forced container kill.
+
+Both this collector and `apprise-api` must join the external Docker network
+`single`, and the API must listen on internal port `8000`. The collector already
+joins that network. Recreate the collector with `./update.sh --force` after
+changing `.env` so startup delivery and the new URL take effect.
+
 `config.toml` controls the polling interval, overlap window, API time horizon
 and request budget, symbol selection (`symbols_mode`: `all` or `allowlist`),
 batch size, log level, and freshness alerts

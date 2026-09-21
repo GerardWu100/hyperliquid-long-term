@@ -35,6 +35,7 @@ from hyperliquid_candles.ingestion.windows import (
     last_closed_open_ms,
 )
 from hyperliquid_candles.logging_setup import setup_logging
+from hyperliquid_candles.notifications import configure_notifications
 from hyperliquid_candles.ratelimit import TokenBucket
 from hyperliquid_candles.scheduler import run_scheduler
 from hyperliquid_candles.storage.clickhouse_client import wait_for_clickhouse
@@ -432,6 +433,25 @@ def _backfill_recoverable_gaps(
 
 def main() -> None:
     """Run the long-lived ingestion scheduler."""
+    notifier = configure_notifications()
+    notifier.send(
+        "hyperliquid-long-term: starting",
+        "Container service process started; initializing configuration and data collection.",
+    )
+    try:
+        _run_service()
+    except Exception as error:
+        notifier.send(
+            "hyperliquid-long-term: stopped",
+            f"Service initialization or scheduler failed ({type(error).__name__}). Check the container logs.",
+            "failure",
+        )
+        notifier.flush_pending()
+        raise
+
+
+def _run_service() -> None:
+    """Initialize configuration and run the existing collection scheduler."""
     settings = load_settings()
     log_path = setup_logging(settings.ingestion.log_level)
     LOGGER.info("Logging to %s", log_path)

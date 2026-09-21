@@ -1,3 +1,7 @@
+# Open issues
+
+- Notification deployment verification (2026-09-21): unit tests mock Apprise HTTP delivery and verify the stored-key endpoint, cooldown, setup failures, and fail-open behavior. Live delivery from the container has not been verified: Docker socket access was denied in this session, including an escalated check. From a shell with Docker access, rebuild/recreate the collector, confirm `apprise-api` is reachable on external Docker network `single`, and check that its configured destination receives the startup notice. A host shutdown or forced kill cannot be reported by this in-process notifier.
+
 # Part 1: Conceptual explanation
 
 `hyperliquid_candles` is the service package. It coordinates three external surfaces:
@@ -39,6 +43,7 @@ cache.
   Standalone runs configure logging inside `run_once`; scheduler mode configures
   logging once in `main` and disables per-cycle logging setup.
 - `config.py`: turns `.env` plus `config.toml` into immutable settings objects.
+- `notifications.py`: reads `APPRISE_URL` from the authoritative root `.env`, attaches a project logger handler before service setup, and sends startup, fatal setup, warning, and error messages through Apprise. A bounded daemon-worker queue isolates collection from delivery failures; warning/error groups each have a 15-minute cooldown. Only static log templates are sent, keeping formatted exception values and credentials out of alerts. Apprise's own logs are suppressed to avoid destination disclosure. Collection data and watermark semantics are unchanged.
 - `logging_setup.py`: creates log files and console logging.
 - `scheduler.py`: repeats a callback with configured cadence and shutdown
   signal handling.
