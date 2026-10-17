@@ -137,6 +137,9 @@ uv sync
 cp .env.example .env
 ```
 
+`uv sync` also installs the `dev` group (pytest, ruff, matplotlib for
+`blog/generate_charts.py`). The Docker image installs only runtime packages.
+
 Add your ClickHouse connection details to `.env`. Use `config.toml` to change
 the polling schedule, symbols, request limits, batch size, and alert thresholds.
 
@@ -210,6 +213,16 @@ batch size, log level, and freshness alerts
 (`alert_warn_min`, `alert_serious_min`, `alert_urgent_min`, and
 `alert_critical_min`). Every option is documented in the file.
 
+To change settings in Docker, put a `config.toml` in the folder mounted at
+`/data` with only the keys you want to change. Its keys are merged over the
+built-in file, so every key you leave out keeps its built-in value. An unknown
+key (for example a typo) stops startup with an error.
+
+In `allowlist` mode, a symbol that Hyperliquid does not list as an active perp
+(delisted or misspelled) is skipped with a warning alert. The other symbols are
+still collected, the cycle is marked `partial`, and the skipped symbol gets a
+`skipped` row in `ingestion_symbol_status`.
+
 ## Layout
 
 ```text
@@ -222,8 +235,15 @@ docs/reference/            IMPLEMENTATION_PLAN.md, the detailed project contract
 ## Output
 
 Candles are stored in the ClickHouse table `candles_1m`. Collection-cycle data
-is stored in `ingestion_runs` and `ingestion_symbol_status`. Logs go to `logs/`,
-or to `~/.containers/hyperliquid-candles` when running with Docker.
+is stored in `ingestion_runs` and `ingestion_symbol_status`. In
+`ingestion_runs`, `error` lists failed and skipped symbols, or the exception
+when a whole cycle fails (for example the Hyperliquid `meta` request); it is
+empty for a fully successful cycle.
+
+Logs go to `logs/`, or to the folder mounted at `/data/logs` when running with
+Docker. Each log file rolls over at 10 MB and keeps 5 old copies, and only the
+30 most recent process runs stay in the folder. httpx request lines are hidden
+unless `log_level = "DEBUG"`.
 
 See `COMPRESSION_BENCHMARK.md` for the compression choices used by the candle
 table.

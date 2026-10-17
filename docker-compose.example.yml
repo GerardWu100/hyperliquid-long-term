@@ -30,9 +30,9 @@ services:
     volumes:
       # Folder on your machine, then the path inside the container. Edit the
       # left side to keep files somewhere else; keep the right side as it is.
-      # Logs, plus an optional config.toml that replaces the built-in one
-      # (copy it from the repository and edit it to change the schedule,
-      # symbols, or alert thresholds):
+      # Logs, plus an optional config.toml whose keys override the built-in
+      # one. Put only the keys you change (for example the schedule, symbols,
+      # or alert thresholds); a misspelled key stops startup with an error:
       - $HOME/.containers/hyperliquid-long-term:/data
       # ClickHouse host, port, user, password, and database, plus the
       # optional Apprise alert URL. Read-only; create this file first, or

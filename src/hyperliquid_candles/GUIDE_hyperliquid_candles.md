@@ -42,9 +42,13 @@ cache.
   to one symbol marks only that symbol failed and the cycle continues.
   Standalone runs configure logging inside `run_once`; scheduler mode configures
   logging once in `main` and disables per-cycle logging setup.
-- `config.py`: turns `.env` plus `config.toml` into immutable settings objects.
+  Unknown allowlisted symbols get `skipped` status rows and make the cycle
+  `partial`; `ingestion_runs.error` lists failed and skipped symbols, and an
+  exception outside the per-symbol phases writes a `failed` run row before
+  re-raising.
+- `config.py`: turns `.env` plus `config.toml` into immutable settings objects. An override file under `HL_DATA_DIR` only needs the keys it changes; unknown keys raise at startup.
 - `notifications.py`: reads `APPRISE_URL` from the authoritative root `.env`, attaches a project logger handler before service setup, and sends startup, fatal setup, warning, and error messages through Apprise. A bounded daemon-worker queue isolates collection from delivery failures; warning/error groups each have a 15-minute cooldown. Only static log templates are sent, keeping formatted exception values and credentials out of alerts. Apprise's own logs are suppressed to avoid destination disclosure. Collection data and watermark semantics are unchanged.
-- `logging_setup.py`: creates log files and console logging.
+- `logging_setup.py`: creates size-rotated log files and console logging, prunes old process runs, and quiets per-request httpx lines.
 - `scheduler.py`: repeats a callback with configured cadence and shutdown
   signal handling.
 - `ratelimit.py`: token-bucket pacing for weighted Hyperliquid REST requests.
@@ -52,7 +56,7 @@ cache.
 - `hyperliquid/client.py`: HTTP POST client for `meta` and `candleSnapshot`.
   Candle calls reserve base and estimated response-item weight before each HTTP
   attempt, then validate that returned symbols and open times match the request.
-- `hyperliquid/universe.py`: active symbol selection from `meta`.
+- `hyperliquid/universe.py`: active symbol selection from `meta`. In allowlist mode, unknown symbols are returned in `SymbolSelection.unknown` with a warning instead of raising.
 - `hyperliquid/candles.py`: candle dataclass and parser. It rejects unexpected
   intervals, misaligned timestamps, invalid OHLC ranges, and negative volume or
   trade counts before storage.
@@ -95,3 +99,4 @@ pure ingestion logic.
 - 2026-06-22: Added a gap-backfill phase bounded to the recent REST window.
 - 2026-06-24: Changed raw candle compression away from Gorilla after the benchmark showed `Delta` is better for OHLC prices and plain `ZSTD` is better for lossless fractional volume.
 - 2026-07-13: Corrected inclusive horizon arithmetic, pre-reserved candle response weight, and removed the unsupported assumption that every no-trade minute must have a source candle.
+- 2026-10-17: Allowlist entries that are not active perps no longer fail the cycle; `ingestion_runs.error` is now filled; `IngestionSettings` defaults equal the built-in `config.toml` and override files merge over it.

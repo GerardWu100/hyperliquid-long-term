@@ -10,5 +10,6 @@ def main() -> None:
     result = run_once()
     print(
         f"run_id={result.run_id} status={result.status} symbols_ok={result.symbols_ok} "
-        f"symbols_failed={result.symbols_failed} candles_inserted={result.candles_inserted}"
+        f"symbols_failed={result.symbols_failed} symbols_skipped={result.symbols_skipped} "
+        f"candles_inserted={result.candles_inserted}"
     )

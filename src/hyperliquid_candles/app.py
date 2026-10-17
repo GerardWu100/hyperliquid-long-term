@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from hyperliquid_candles.config import Settings, load_settings
@@ -54,6 +55,11 @@ from hyperliquid_candles.storage.writer import insert_candles
 
 LOGGER = logging.getLogger(__name__)
 
+# Longest text stored in an `ingestion_runs.error` cell.
+MAX_RUN_ERROR_CHARS = 1000
+# Reason recorded for allowlisted symbols that `meta` does not list as active.
+UNKNOWN_SYMBOL_ERROR = "not an active Hyperliquid perp"
+
 
 @dataclass(frozen=True)
 class CycleResult:
@@ -63,6 +69,7 @@ class CycleResult:
     symbols_total: int
     symbols_ok: int
     symbols_failed: int
+    symbols_skipped: int
     candles_inserted: int
     status: str
 
@@ -118,17 +125,59 @@ def run_ingestion_cycle(
     clickhouse_client: object,
     hyperliquid_client: object,
 ) -> CycleResult:
-    """Run initial backfill, incremental overlap, and gap repair for the universe."""
+    """Run initial backfill, incremental overlap, and gap repair for the universe.
+
+    A failure outside the per-symbol phases (for example the ``meta`` request or
+    the watermark query) still writes a ``failed`` row with the error text to
+    ``ingestion_runs``, then re-raises so the scheduler logs and alerts on it.
+    """
     run_id = new_run_id()
     started_at = utc_now()
+    try:
+        return _run_cycle_phases(
+            run_id=run_id,
+            started_at=started_at,
+            settings=settings,
+            clickhouse_client=clickhouse_client,
+            hyperliquid_client=hyperliquid_client,
+        )
+    except Exception as exc:
+        _write_run_summary(
+            clickhouse_client,
+            database=settings.clickhouse.database,
+            summary=RunSummary(
+                run_id=run_id,
+                mode="incremental",
+                started_at=started_at,
+                finished_at=utc_now(),
+                symbols_total=0,
+                symbols_ok=0,
+                symbols_failed=0,
+                candles_inserted=0,
+                status="failed",
+                error=_truncate_error(f"{type(exc).__name__}: {exc}"),
+            ),
+        )
+        raise
+
+
+def _run_cycle_phases(
+    run_id: UUID,
+    started_at: datetime,
+    settings: Settings,
+    clickhouse_client: object,
+    hyperliquid_client: object,
+) -> CycleResult:
+    """Run the three ingestion phases and write the cycle's metadata rows."""
     database = settings.clickhouse.database
 
     meta_response = hyperliquid_client.fetch_meta()
-    symbols = select_symbols(
+    selection = select_symbols(
         meta_response=meta_response,
         symbols_mode=settings.ingestion.symbols_mode,
         symbols_allowlist=settings.ingestion.symbols_allowlist,
     )
+    symbols = selection.selected
     watermarks_ms = query_watermarks_ms(clickhouse_client, database=database)
     last_closed_ms = last_closed_open_ms()
     horizon_floor_ms = earliest_open_ms_for_candle_count(
@@ -137,7 +186,23 @@ def run_ingestion_cycle(
         interval_ms=INTERVAL_MS,
     )
 
-    symbol_statuses: list[SymbolStatus] = []
+    # Unknown allowlisted symbols get a `skipped` status row so the reason is
+    # queryable in ClickHouse, not only in the logs.
+    symbol_statuses: list[SymbolStatus] = [
+        SymbolStatus(
+            run_id=run_id,
+            symbol=symbol,
+            mode="incremental",
+            requested_start=ms_to_datetime(horizon_floor_ms),
+            requested_end=ms_to_datetime(last_closed_ms),
+            effective_start=ms_to_datetime(horizon_floor_ms),
+            rows_fetched=0,
+            rows_inserted=0,
+            status="skipped",
+            error=UNKNOWN_SYMBOL_ERROR,
+        )
+        for symbol in selection.unknown
+    ]
     failed_symbols: set[str] = set()
     candles_inserted = 0
 
@@ -196,12 +261,17 @@ def run_ingestion_cycle(
     symbol_statuses.extend(gap_statuses)
     failed_symbols.update(gap_failures)
 
-    symbols_total = len(symbols)
+    symbols_skipped = len(selection.unknown)
+    symbols_total = len(symbols) + symbols_skipped
     symbols_failed = len(failed_symbols)
-    symbols_ok = max(symbols_total - symbols_failed, 0)
+    symbols_ok = len(symbols) - symbols_failed
     final_status = _cycle_status(
-        symbols_total=symbols_total, symbols_failed=symbols_failed
+        symbols_ok=symbols_ok,
+        symbols_failed=symbols_failed,
+        symbols_skipped=symbols_skipped,
     )
+    if symbols_ok == 0:
+        LOGGER.error("Ingestion cycle collected no symbols; check symbols_allowlist")
 
     # Metadata writes are best-effort: a failure here must not crash the loop,
     # because the candle rows (the real product) are already committed and the
@@ -214,31 +284,31 @@ def run_ingestion_cycle(
         LOGGER.exception("Failed to write per-symbol status rows")
 
     run_mode = "initial" if new_symbols else "incremental"
-    try:
-        insert_run_summary(
-            clickhouse_client,
-            database=database,
-            summary=RunSummary(
-                run_id=run_id,
-                mode=run_mode,
-                started_at=started_at,
-                finished_at=utc_now(),
-                symbols_total=symbols_total,
-                symbols_ok=symbols_ok,
-                symbols_failed=symbols_failed,
-                candles_inserted=candles_inserted,
-                status=final_status,
-                error="",
+    _write_run_summary(
+        clickhouse_client,
+        database=database,
+        summary=RunSummary(
+            run_id=run_id,
+            mode=run_mode,
+            started_at=started_at,
+            finished_at=utc_now(),
+            symbols_total=symbols_total,
+            symbols_ok=symbols_ok,
+            symbols_failed=symbols_failed,
+            candles_inserted=candles_inserted,
+            status=final_status,
+            error=_run_error_text(
+                failed_symbols=failed_symbols, skipped_symbols=selection.unknown
             ),
-        )
-    except Exception:
-        LOGGER.exception("Failed to write run summary row")
+        ),
+    )
 
     LOGGER.info(
-        "Ingestion cycle complete run_id=%s status=%s symbols=%s rows=%s",
+        "Ingestion cycle complete run_id=%s status=%s symbols=%s skipped=%s rows=%s",
         run_id,
         final_status,
         symbols_total,
+        symbols_skipped,
         candles_inserted,
     )
     return CycleResult(
@@ -246,18 +316,56 @@ def run_ingestion_cycle(
         symbols_total=symbols_total,
         symbols_ok=symbols_ok,
         symbols_failed=symbols_failed,
+        symbols_skipped=symbols_skipped,
         candles_inserted=candles_inserted,
         status=final_status,
     )
 
 
-def _cycle_status(symbols_total: int, symbols_failed: int) -> str:
-    """Map per-symbol failure counts to a run-level status label."""
-    if symbols_failed == 0:
-        return "success"
-    if symbols_total > 0 and symbols_failed >= symbols_total:
+def _cycle_status(symbols_ok: int, symbols_failed: int, symbols_skipped: int) -> str:
+    """Map per-symbol outcome counts to a run-level status label.
+
+    ``success`` means every selected symbol succeeded and none was skipped;
+    ``failed`` means no symbol succeeded (including an empty selection);
+    anything in between is ``partial``.
+    """
+    if symbols_ok == 0:
         return "failed"
+    if symbols_failed == 0 and symbols_skipped == 0:
+        return "success"
     return "partial"
+
+
+def _run_error_text(failed_symbols: set[str], skipped_symbols: tuple[str, ...]) -> str:
+    """Summarize failed and skipped symbols for ``ingestion_runs.error``.
+
+    Example: ``"failed: BTC, ETH; skipped (not active perps): FOO"``. Empty when
+    the cycle fully succeeded. Per-symbol exception text stays in
+    ``ingestion_symbol_status.error``.
+    """
+    parts: list[str] = []
+    if failed_symbols:
+        parts.append("failed: " + ", ".join(sorted(failed_symbols)))
+    if skipped_symbols:
+        parts.append(f"skipped ({UNKNOWN_SYMBOL_ERROR}): " + ", ".join(skipped_symbols))
+    return _truncate_error("; ".join(parts))
+
+
+def _truncate_error(text: str) -> str:
+    """Cap error text so one huge exception message cannot bloat metadata rows."""
+    if len(text) <= MAX_RUN_ERROR_CHARS:
+        return text
+    return text[: MAX_RUN_ERROR_CHARS - 3] + "..."
+
+
+def _write_run_summary(
+    clickhouse_client: object, database: str, summary: RunSummary
+) -> None:
+    """Insert one ``ingestion_runs`` row; log instead of raising on failure."""
+    try:
+        insert_run_summary(clickhouse_client, database=database, summary=summary)
+    except Exception:
+        LOGGER.exception("Failed to write run summary row")
 
 
 def _ingest_initial_symbol(

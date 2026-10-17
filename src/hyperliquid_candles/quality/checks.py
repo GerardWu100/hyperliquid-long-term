@@ -47,7 +47,7 @@ def build_quality_report(settings: Settings | None = None) -> str:
         meta_response=meta_response,
         symbols_mode=resolved_settings.ingestion.symbols_mode,
         symbols_allowlist=resolved_settings.ingestion.symbols_allowlist,
-    )
+    ).selected
     database = resolved_settings.clickhouse.database
     latest_section = _run_query(
         validated.client,

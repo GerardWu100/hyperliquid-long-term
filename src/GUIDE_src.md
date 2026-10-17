@@ -20,13 +20,16 @@ ClickHouse boundary.
 
 # Part 2: Code reference
 
-- `hyperliquid_candles/config.py`: loads `.env` and `config.toml` into typed settings.
+- `hyperliquid_candles/config.py`: loads `.env` and `config.toml` into typed settings. An
+  `HL_DATA_DIR/config.toml` is merged key by key over the built-in file; unknown keys raise.
+  `IngestionSettings` defaults must equal the built-in file (a test checks this).
 - `hyperliquid_candles/app.py`: validates ClickHouse, creates schema, discovers symbols,
   runs initial backfill and incremental fetches, writes metadata.
 - `hyperliquid_candles/scheduler.py`: immediate catch-up cycle plus repeated sleeping
   with jitter and signal handling.
 - `hyperliquid_candles/logging_setup.py`: creates console, main log, and error log
-  handlers.
+  handlers; files rotate by size, old process runs are pruned, httpx/httpcore stay at
+  WARNING unless the level is DEBUG.
 - `hyperliquid_candles/ratelimit.py`: synchronous token-bucket limiter for request
   weights.
 - `hyperliquid_candles/hyperliquid/`: REST client, `meta` symbol parsing, and candle

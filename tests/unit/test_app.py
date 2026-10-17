@@ -74,6 +74,7 @@ def test_run_once_can_skip_logging_setup_for_scheduler_cycles(monkeypatch) -> No
             symbols_total=1,
             symbols_ok=1,
             symbols_failed=0,
+            symbols_skipped=0,
             candles_inserted=0,
             status="success",
         )

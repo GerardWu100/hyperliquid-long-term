@@ -7,7 +7,7 @@ details and `config.toml` for non-secret ingestion tunables.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -37,19 +37,52 @@ def data_dir() -> Path:
     return Path(override) if override else PROJECT_ROOT
 
 
-def _resolve_config_path(config_path: Path | None) -> Path:
-    """Return the ingestion ``config.toml`` path.
+def _builtin_config_path() -> Path:
+    """Return the repo (or image) `config.toml` that holds every default."""
+    return PROJECT_ROOT / "config.toml"
 
-    When ``HL_DATA_DIR`` points at a directory that contains ``config.toml``,
-    that file wins so Docker operators can override tunables without rebuilding
-    the image. Otherwise the baked-in repo ``config.toml`` is used.
+
+def _resolve_override_config_path(config_path: Path | None) -> Path | None:
+    """Return the optional ``config.toml`` that overrides the built-in file.
+
+    An explicit ``config_path`` wins. Otherwise ``HL_DATA_DIR/config.toml`` is
+    used when it exists, so Docker operators can change tunables without
+    rebuilding the image. ``None`` means the built-in file is used alone.
     """
     if config_path is not None:
         return config_path
     data_config = data_dir() / "config.toml"
-    if data_config.exists():
+    if (
+        data_config.exists()
+        and data_config.resolve() != _builtin_config_path().resolve()
+    ):
         return data_config
-    return PROJECT_ROOT / "config.toml"
+    return None
+
+
+def load_config_values(config_path: Path | None = None) -> dict[str, Any]:
+    """Return built-in ``config.toml`` values with override keys merged on top.
+
+    The override file only needs the keys it changes; every other key keeps
+    its built-in value. Unknown keys in either file raise, so a misspelled
+    option fails at startup instead of being ignored silently.
+
+    Raises
+    ------
+    ValueError
+        Raised when a file contains a key that is not an ingestion setting.
+    """
+    config_values: dict[str, Any] = {}
+    override_path = _resolve_override_config_path(config_path)
+    for path in (_builtin_config_path(), override_path):
+        if path is None or not path.exists():
+            continue
+        file_values = tomllib.loads(path.read_text(encoding="utf-8"))
+        unknown_keys = sorted(set(file_values) - _INGESTION_FIELD_NAMES)
+        if unknown_keys:
+            raise ValueError(f"Unknown keys in {path}: {unknown_keys}")
+        config_values.update(file_values)
+    return config_values
 
 
 @dataclass(frozen=True)
@@ -82,12 +115,16 @@ class ClickHouseSettings:
 
 @dataclass(frozen=True)
 class IngestionSettings:
-    """Runtime settings for REST polling, backfill, and monitoring."""
+    """Runtime settings for REST polling, backfill, and monitoring.
+
+    Defaults equal the values in the built-in ``config.toml`` (a unit test
+    enforces this), so a missing key means the same thing everywhere.
+    """
 
     poll_interval_sec: int = 1800
     overlap_candles: int = 5
     rest_horizon_candles: int = 5000
-    weight_budget_per_min: int = 900
+    weight_budget_per_min: int = 1000
     request_timeout_sec: int = 30
     max_retries: int = 4
     symbols_mode: str = "all"
@@ -134,45 +171,23 @@ class Settings:
             database=_required_env(env_values, "IVYDB_CLICKHOUSE_DATABASE"),
         )
 
-        symbols_mode = str(config_values.get("symbols_mode", "all"))
-        if symbols_mode not in {"all", "allowlist"}:
+        defaults = IngestionSettings()
+        values: dict[str, Any] = {}
+        for field in fields(IngestionSettings):
+            raw_value = config_values.get(field.name, getattr(defaults, field.name))
+            if field.name == "symbols_allowlist":
+                if not isinstance(raw_value, (list, tuple)):
+                    raise ValueError("symbols_allowlist must be a TOML list of strings")
+                values[field.name] = tuple(str(symbol) for symbol in raw_value)
+            else:
+                # Coerce to the default's type (int or str) so TOML values like
+                # `poll_interval_sec = "1800"` fail loudly or convert cleanly.
+                values[field.name] = type(getattr(defaults, field.name))(raw_value)
+
+        if values["symbols_mode"] not in {"all", "allowlist"}:
             raise ValueError("symbols_mode must be either 'all' or 'allowlist'")
 
-        allowlist_values = config_values.get("symbols_allowlist", [])
-        if not isinstance(allowlist_values, list):
-            raise ValueError("symbols_allowlist must be a TOML list of strings")
-
-        ingestion = IngestionSettings(
-            poll_interval_sec=int(config_values.get("poll_interval_sec", 1800)),
-            overlap_candles=int(config_values.get("overlap_candles", 5)),
-            rest_horizon_candles=int(config_values.get("rest_horizon_candles", 5000)),
-            weight_budget_per_min=int(config_values.get("weight_budget_per_min", 900)),
-            request_timeout_sec=int(config_values.get("request_timeout_sec", 30)),
-            max_retries=int(config_values.get("max_retries", 4)),
-            symbols_mode=symbols_mode,
-            symbols_allowlist=tuple(str(symbol) for symbol in allowlist_values),
-            initial_backfill_start_time_utc=str(
-                config_values.get("initial_backfill_start_time_utc", "")
-            ),
-            batch_insert_max_rows=int(
-                config_values.get("batch_insert_max_rows", 100000)
-            ),
-            log_level=str(config_values.get("log_level", "INFO")),
-            readiness_backoff_initial_sec=int(
-                config_values.get("readiness_backoff_initial_sec", 2)
-            ),
-            readiness_backoff_max_sec=int(
-                config_values.get("readiness_backoff_max_sec", 60)
-            ),
-            readiness_backoff_jitter_sec=int(
-                config_values.get("readiness_backoff_jitter_sec", 1)
-            ),
-            alert_warn_min=int(config_values.get("alert_warn_min", 60)),
-            alert_serious_min=int(config_values.get("alert_serious_min", 720)),
-            alert_urgent_min=int(config_values.get("alert_urgent_min", 2880)),
-            alert_critical_min=int(config_values.get("alert_critical_min", 4320)),
-        )
-
+        ingestion = IngestionSettings(**values)
         _validate_positive_tunables(ingestion)
         return cls(clickhouse=clickhouse, ingestion=ingestion)
 
@@ -181,8 +196,16 @@ def load_settings(
     config_path: Path | None = None,
     env_path: Path | None = None,
 ) -> Settings:
-    """Load settings from project files and the current process environment."""
-    resolved_config_path = _resolve_config_path(config_path)
+    """Load settings from project files and the current process environment.
+
+    Parameters
+    ----------
+    config_path:
+        Optional override ``config.toml``; defaults to ``HL_DATA_DIR/config.toml``
+        when it exists. Its keys are merged over the built-in file.
+    env_path:
+        ClickHouse ``.env`` file; defaults to ``PROJECT_ROOT / ".env"``.
+    """
     resolved_env_path = env_path or PROJECT_ROOT / ".env"
 
     # Precedence: the `.env` file is the authoritative source for ClickHouse
@@ -197,9 +220,7 @@ def load_settings(
     }
     merged_env.update(file_env)
 
-    config_values: dict[str, Any] = {}
-    if resolved_config_path.exists():
-        config_values = tomllib.loads(resolved_config_path.read_text(encoding="utf-8"))
+    config_values = load_config_values(config_path)
 
     try:
         return Settings.from_values(env_values=merged_env, config_values=config_values)
@@ -220,6 +241,9 @@ _CLICKHOUSE_ENV_KEYS = (
     "IVYDB_CLICKHOUSE_SECURE",
     "IVYDB_CLICKHOUSE_DATABASE",
 )
+
+
+_INGESTION_FIELD_NAMES = frozenset(field.name for field in fields(IngestionSettings))
 
 
 def _required_env(env_values: dict[str, str | None], key: str) -> str:
