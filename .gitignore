@@ -58,3 +58,6 @@ __MACOSX/
 .obsidian-*/
 .obsidian.vimrc
 .trash/
+
+# Agent tool state (regenerated per machine and per tool version)
+.serena/
