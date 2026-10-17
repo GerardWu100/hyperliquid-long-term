@@ -37,6 +37,13 @@ logging for their single cycle.
 - `Dockerfile`: builds the service image with `uv`.
 - `docker-compose.yml`: runs the service with restart policy and external
   ClickHouse networking notes.
+- `docker-compose.example.yml`: commented compose file that pulls the published
+  GHCR image instead of building; the README Install section mirrors it.
+- `.github/workflows/tests.yml`: offline pytest run on every push and pull request.
+- `.github/workflows/publish-image.yml`: after tests pass, builds the amd64 and
+  arm64 image and pushes it to `ghcr.io/gerardwu100/hyperliquid-long-term` with
+  `latest`, `sha-<commit>`, and semver tags from `v*.*.*` git tags. Its `paths`
+  filter lists only files that enter the image; keep it in sync with the Dockerfile.
 - `CODE_EXPLAINED.html`: self-contained walkthrough of the whole codebase, with a
   relationship diagram, the real maths, and sample inputs and outputs taken from
   running the code against the live endpoint and ClickHouse.
@@ -57,3 +64,4 @@ Start with `README.md`, then `src/hyperliquid_candles/app.py` for orchestration.
 - 2026-06-29: Added a password-free ClickHouse user XML example and README bootstrap one-liner for creating the database plus scoped writable user.
 - 2026-07-13: Corrected the 5,000-candle boundary to span 4,999 intervals, reserved candle response weight before each request, and treated missing minutes as repair candidates rather than proven source candles.
 - 2026-08-10: Added `CODE_EXPLAINED.html`. Fixed three defects found while writing it: log records were stamped with the formatting time instead of their own creation time, the scheduler's interruptible sleep could be handed a negative duration and crash the service loop, and `run_once` leaked one ClickHouse connection pool per cycle.
+- 2026-10-17: Published the image to GitHub Container Registry through GitHub Actions (tests gate the build), added `docker-compose.example.yml` and a README Install section for running without a clone, and set `HL_DATA_DIR=/data` in the Dockerfile so a plain `docker run` writes logs to the mounted folder.

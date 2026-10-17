@@ -1,0 +1,84 @@
+# Build the collector image and publish it to GitHub Container Registry (GHCR),
+# so a server can run the collector from `docker-compose.example.yml` without
+# cloning this repository or building anything.
+#
+# Tags pushed:
+#   latest            every build from master
+#   sha-<commit>      every build, so any commit can be pinned
+#   1.0.0, 1.0, 1     a release: pushing git tag v1.0.0 builds these three, so
+#                     a deployment can pin an exact release (1.0.0), take only
+#                     fixes (1.0), or take everything short of a breaking
+#                     change (1)
+#
+# The image is built for amd64 (most PCs and cloud servers) and arm64
+# (Raspberry Pi, Apple-silicon hosts, ARM cloud servers). Docker on the server
+# pulls the matching one automatically.
+name: Publish Docker image
+
+on:
+  push:
+    branches: [master]
+    # Release tags. GitHub ignores the paths filter below for tag pushes, so a
+    # release always builds.
+    tags: ["v*.*.*"]
+    # Only files that change the image. Tests, docs, guides, and the blog
+    # never enter it, so pushing them should not rebuild. README.md is listed
+    # because the package build reads it as the project description.
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - README.md
+      - config.toml
+      - src/**
+      - scripts/**
+      - .github/workflows/publish-image.yml
+  # Manual "Run workflow" button, for example to pick up a new base image.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # QEMU emulates arm64 so one amd64 runner can build both platforms.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Image names must be lowercase; the GitHub owner name is not.
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

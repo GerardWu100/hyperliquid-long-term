@@ -24,7 +24,98 @@ this service continuously.
 See `GUIDE_OVERVIEW.md` for the data flow and design trade-offs. The detailed
 project contract is in `docs/reference/IMPLEMENTATION_PLAN.md`.
 
+## Install
+
+You need a computer that stays on, with [Docker](https://docs.docker.com/engine/install/),
+and a ClickHouse server it can reach. No clone and no build: the published
+image works on ordinary PCs and servers (amd64) and on Raspberry Pi or ARM
+servers (arm64).
+
+First create the settings file. The collector reads ClickHouse credentials
+from it; they never go into the image:
+
+```bash
+mkdir -p ~/.containers/hyperliquid-long-term
+curl -fsSL https://raw.githubusercontent.com/GerardWu100/hyperliquid-long-term/master/.env.example \
+  -o ~/.containers/hyperliquid-long-term/.env
+```
+
+Edit `~/.containers/hyperliquid-long-term/.env` and fill in the ClickHouse
+values. The table below says what the host and port must be.
+
+### Option A: Docker Compose (recommended)
+
+Save this as `docker-compose.yml` in an empty folder:
+
+```yaml
+services:
+  hyperliquid-candles:
+    image: ghcr.io/gerardwu100/hyperliquid-long-term:latest
+    container_name: hyperliquid-candles
+    restart: unless-stopped
+    environment:
+      - TZ=America/Toronto
+    volumes:
+      - ~/.containers/hyperliquid-long-term:/data                # logs, optional config.toml
+      - ~/.containers/hyperliquid-long-term/.env:/app/.env:ro    # ClickHouse settings
+    networks:
+      - single
+
+networks:
+  single:
+    name: single    # the Docker network ClickHouse is on
+```
+
+Then start it from that folder:
+
+```bash
+docker compose up -d
+```
+
+A [fully commented version](docker-compose.example.yml) of this file is in the
+repository too.
+
+### Option B: one `docker run` command
+
+```bash
+docker run -d --name hyperliquid-candles --restart unless-stopped \
+  --network single \
+  -e TZ=America/Toronto \
+  -v ~/.containers/hyperliquid-long-term:/data \
+  -v ~/.containers/hyperliquid-long-term/.env:/app/.env:ro \
+  ghcr.io/gerardwu100/hyperliquid-long-term:latest
+```
+
+### Before you start: three things to check
+
+| Check | Why | What to change |
+|---|---|---|
+| `IVYDB_CLICKHOUSE_HOST` and `IVYDB_CLICKHOUSE_PORT` in `.env` | Inside a container, `localhost` is the container itself | The ClickHouse container name from `docker ps`, and its internal HTTP port (`8123`), not the host-published port |
+| `docker network inspect single` lists the ClickHouse container | The collector finds ClickHouse by name only on a shared network | Rename `single` in both places to the network ClickHouse is on, or add ClickHouse to `single` |
+| The database exists and the user can write to it | The collector creates tables but not the database | Run the `CREATE DATABASE` command in [Setup](#setup), and grant the user `SELECT`, `INSERT`, `CREATE TABLE`, and `ALTER TABLE` on it |
+
+Then run `docker logs -f hyperliquid-candles`. A working start shows the first
+collection cycle; `ClickHouse not ready` lines mean the host, port, or network
+is wrong.
+
+### Update
+
+| Installed with | Update with |
+|---|---|
+| Compose | `docker compose pull && docker compose up -d` |
+| `docker run` | `docker pull ghcr.io/gerardwu100/hyperliquid-long-term:latest`, then `docker rm -f hyperliquid-candles`, then the same `docker run` command again |
+
+The candles live in ClickHouse and the logs in the folder, not in the
+container, so updating never loses them. After an update the collector resumes
+from the latest stored candle. Nothing updates on its own.
+
+**Pin a version** if you would rather update on your own schedule: replace
+`latest` with `sha-<commit>` (an exact build), or with a release such as `1`,
+`1.0`, or `1.0.0` once one is tagged.
+
 ## Requirements
+
+To run from a checkout instead of the published image:
 
 - Python 3.13
 - A ClickHouse server reachable through its HTTP interface
@@ -63,7 +154,8 @@ uv run hyperliquid-candles-run-once     # collect one cycle, for cron/systemd
 uv run hyperliquid-candles-quality      # report freshness, gaps, and duplicates
 ```
 
-To run the service with Docker:
+To build and run the service from this checkout with Docker instead of the
+published image:
 
 ```bash
 cp .env.example .env       # edit ClickHouse settings in .env
@@ -108,8 +200,9 @@ Process alerts cannot report host power loss or a forced container kill.
 
 Both this collector and `apprise-api` must join the external Docker network
 `single`, and the API must listen on internal port `8000`. The collector already
-joins that network. Recreate the collector with `./update.sh --force` after
-changing `.env` so startup delivery and the new URL take effect.
+joins that network. Recreate the collector with `./update.sh --force` (published image:
+`docker compose up -d --force-recreate`) after changing `.env` so startup
+delivery and the new URL take effect.
 
 `config.toml` controls the polling interval, overlap window, API time horizon
 and request budget, symbol selection (`symbols_mode`: `all` or `allowlist`),
