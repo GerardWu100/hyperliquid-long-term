@@ -55,4 +55,7 @@ alert_serious_min = 720
 alert_urgent_min = 2880
 
 # Freshness critical threshold, in minutes behind latest closed candle.
+# 4320 (72 h) fires about 11 h before data becomes unrecoverable at
+# (rest_horizon_candles - 1) minutes (4,999 min, about 83 h). Nothing in code links
+# the two, so change this whenever rest_horizon_candles changes.
 alert_critical_min = 4320

@@ -18,6 +18,7 @@
 - 2026-06-22: `candleSnapshot` is newest-anchored: a window wider than the horizon (observed about 5,190 to 5,200 candles back from now; the docs promise only 5,000) silently drops the oldest candles. Page backward by `endTime`. Downtime longer than about 3.47 days (5,000 candles span 4,999 minutes) loses data for good.
 - 2026-07-13: A missing minute is only a repair candidate. Hyperliquid does not promise a candle for every no-trade minute, so a gap can remain after a successful refetch. Zero-trade candles with a carried price are valid source data.
 - 2026-10-17: An incremental sweep costs about symbols x 20 / budget minutes (about 10 minutes for 500 symbols at 1000/min). A cold-start backfill costs about 103 weight per symbol (5,000 slots), so the first sweep is about 5x longer. The scheduler sleeps `poll_interval_sec` after each sweep, so a slow sweep only stretches the cycle; it loses data only if sweep + interval nears the 3.47-day horizon.
+- 2026-08-10: The quality report reads `system.parts`, which the example `clickhouse-user-example.xml` user (grants only on `hyperliquid.*`) cannot read. `_run_query` has no per-section fallback, so that one missing grant makes the whole report fail.
 - 2026-10-17: The `paths` filter in `.github/workflows/publish-image.yml` lists only files that enter the image. Keep it in sync with the Dockerfile, or image changes will not publish.
 
 ## Failed approaches

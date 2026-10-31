@@ -21,8 +21,7 @@ are outside the project's scope. Hyperliquid provides about 5,000 recent
 one-minute candles—roughly 3.47 days—so long-term history comes from running
 this service continuously.
 
-See `TRAIL_NOTES.md` for settled design choices and known traps. The detailed
-project contract is in `docs/reference/IMPLEMENTATION_PLAN.md`.
+See `TRAIL_NOTES.md` for settled design choices and known traps.
 
 ## Install
 
@@ -227,9 +226,9 @@ still collected, the cycle is marked `partial`, and the skipped symbol gets a
 
 ```text
 src/hyperliquid_candles/   service code: API client, ingestion, storage, and quality checks
-scripts/                   small wrappers for cron, systemd, and deployment updates
+scripts/                   small wrappers for cron and systemd
 tests/unit/                fast tests for core logic and fake-source ingestion
-docs/reference/            IMPLEMENTATION_PLAN.md, the detailed project contract
+update.sh                  deployment update script
 ```
 
 ## Output
