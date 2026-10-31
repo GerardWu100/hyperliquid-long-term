@@ -21,7 +21,7 @@ are outside the project's scope. Hyperliquid provides about 5,000 recent
 one-minute candles—roughly 3.47 days—so long-term history comes from running
 this service continuously.
 
-See `GUIDE_OVERVIEW.md` for the data flow and design trade-offs. The detailed
+See `TRAIL_NOTES.md` for settled design choices and known traps. The detailed
 project contract is in `docs/reference/IMPLEMENTATION_PLAN.md`.
 
 ## Install
