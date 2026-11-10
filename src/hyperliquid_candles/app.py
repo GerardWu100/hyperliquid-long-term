@@ -80,7 +80,7 @@ def run_once(
 ) -> CycleResult:
     """Run one catch-up ingestion cycle.
 
-    This function is the entrypoint for `hyperliquid-candles-run-once`, cron, systemd timers, and
+    This function is the entrypoint for `hyperliquid-candles-run-once`, systemd timers, and
     each catch-up cycle inside the long-running scheduler. Standalone callers keep
     the default logging setup behavior. The scheduler disables per-cycle logging
     setup because it configures process logging once before entering the loop.

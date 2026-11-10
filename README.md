@@ -152,7 +152,7 @@ CREATE DATABASE IF NOT EXISTS hyperliquid
 
 ```bash
 uv run hyperliquid-candles              # keep collecting; catch up immediately
-uv run hyperliquid-candles-run-once     # collect one cycle, for cron/systemd
+uv run hyperliquid-candles-run-once     # collect one cycle and exit
 uv run hyperliquid-candles-quality      # report freshness, gaps, and duplicates
 ```
 
@@ -226,7 +226,7 @@ still collected, the cycle is marked `partial`, and the skipped symbol gets a
 
 ```text
 src/hyperliquid_candles/   service code: API client, ingestion, storage, and quality checks
-scripts/                   small wrappers for cron and systemd
+scripts/                   small wrappers that run one cycle or the quality report
 tests/unit/                fast tests for core logic and fake-source ingestion
 update.sh                  deployment update script
 ```
