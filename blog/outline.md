@@ -61,4 +61,4 @@
 - Data gaps: the repository contains no frozen production ingestion run or live ClickHouse quality report, so the article will not claim collected row counts, uptime, throughput, or production compression.
 - Assumptions: the documented roughly 5,000-candle REST horizon is treated as an operational bound, not a service-level guarantee; the compression benchmark uses a representative perpetual-futures dataset rather than the target table itself.
 - Validation checks to run before final draft: regenerate both charts; run the blog validator on both languages; verify every referenced image exists; compare frontmatter and protected blocks; run the project unit tests and Ruff.
-- Deployment note: canonical files remain under `hyperliquid-long-term/blog/`. The user explicitly prohibited copying to or touching `~/projects/website`, so this task stops after committing and pushing the project-local package.
+- Deployment note: canonical files remain under `hyperliquid-long-term/blog/`. The user explicitly prohibited copying to or touching `~/projects/public/website`, so this task stops after committing and pushing the project-local package.
